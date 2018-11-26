@@ -78,7 +78,7 @@ function wf_crm_field_options($field, $context, $data) {
       $ret = drupal_map_assoc(range(1, 9));
     }
     elseif ($table == 'membership' && $name == 'start_date_rules') {
-      $ret = array(0 => t('Automatic'), 1 => t('User Select'), 2 => t('Relative to active membership end date'));
+      $ret = array(0 => '- ' . t('Automatic') . ' -', 1 => '- ' . t('User Select') . ' -', 2 => t('Relative to active membership end date'));
     }
     // Aside from the above special cases, most lists can be fetched from api.getoptions
     else {
@@ -1192,7 +1192,7 @@ function wf_crm_get_fields($var = 'fields') {
         'type' => 'select',
         'expose_list' => TRUE,
         'value' => 0,
-        'exposed_empty_option' => t('Automatic'),
+        'exposed_empty_option' => '- ' . t('Automatic') . ' -',
       );
       $fields['membership_start_date_memberships'] = array (
         'name' => t('Select Membership Types'),
