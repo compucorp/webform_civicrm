@@ -77,7 +77,7 @@ function wf_crm_field_options($field, $context, $data) {
     elseif ($table == 'membership' && $name == 'num_terms') {
       $ret = drupal_map_assoc(range(1, 9));
     }
-    elseif ($table == 'membership' && $name == 'start_date_rules') {
+    elseif ($table == 'membership' && in_array($name, array('start_date_rules', 'end_date_rules'))) {
       $ret = array(0 => '- ' . t('Automatic') . ' -', 1 => '- ' . t('User Select') . ' -', 2 => t('Relative to active membership end date'));
     }
     // Aside from the above special cases, most lists can be fetched from api.getoptions
@@ -99,7 +99,7 @@ function wf_crm_field_options($field, $context, $data) {
         // Pass data into api.getoptions for contextual filtering
         $params += wf_crm_aval($data, "$ent:$c:$table:$n", array());
         // We need the same options as membership_type_id for start_date_memberships
-        if($params['field'] == 'start_date_memberships') {
+        if (in_array($params['field'], array('start_date_memberships', 'end_date_memberships'))) {
           $params['field'] = 'membership_type_id';
         }
       }
@@ -1186,20 +1186,7 @@ function wf_crm_get_fields($var = 'fields') {
         'value' => 1,
         'empty_option' => t('Enter Dates Manually'),
       );
-      // Membership Date Rule Fields
-      $fields['membership_start_date_rules'] = array(
-        'name' => t('Start Date'),
-        'type' => 'select',
-        'expose_list' => TRUE,
-        'value' => 0,
-        'exposed_empty_option' => '- ' . t('Automatic') . ' -',
-      );
-      $fields['membership_start_date_memberships'] = array (
-        'name' => t('Select Membership Types'),
-        'type' => 'select',
-        'expose_list' => TRUE,
-        'extra' => array('multiple' => 1),
-      );
+
       if (isset($sets['contribution'])) {
         $fields['membership_fee_amount'] = array(
           'name' => t('Membership Fee'),
@@ -1242,6 +1229,37 @@ function wf_crm_get_fields($var = 'fields') {
           'empty_option' => t('None'),
         );
       }
+      // Membership Date Rule Fields
+      $fields['membership_start_date_rules'] = array(
+        'name' => t('Start Date'),
+        'type' => 'select',
+        'expose_list' => TRUE,
+        'value' => 0,
+        'exposed_empty_option' => t('Automatic'),
+      );
+      $fields['membership_start_date_memberships'] = array (
+        'name' => t('Select Membership Types'),
+        'type' => 'select',
+        'expose_list' => TRUE,
+        'extra' => array('multiple' => 1),
+      );
+      $fields['membership_end_date_rules'] = array(
+        'name' => t('End Date'),
+        'type' => 'select',
+        'expose_list' => TRUE,
+        'value' => 0,
+        'exposed_empty_option' => t('Automatic'),
+      );
+      $fields['membership_end_date_memberships'] = array (
+        'name' => t('Select Membership Types'),
+        'type' => 'select',
+        'expose_list' => TRUE,
+        'extra' => array('multiple' => 1),
+      );
+      $fields['membership_pro_rate_membership'] = array(
+        'name' => t('Pro-rate Price of Membership'),
+        'type' => 'checkbox',
+      );
     }
     // CiviGrant fields
     if (isset($sets['grant'])) {

@@ -320,6 +320,19 @@ class wf_crm_admin_help {
         <p>If so it will set the start date of the new membership to be the day following the end date of the existing active membership.</p>
         <p>If the user currently has multiple relevant membership types the start date will be one day following the end date of the membership with the latest end date.</p>');
   }
+
+  public static function membership_end_date_rules() {
+    print '<p>'.
+      t('"Automatic" indicates that new membership end date will be calculated according to the start date and the membership duration').
+      '</p>';
+  }
+
+  public static function membership_pro_rate_membership() {
+    print '<p>'.
+      t('If this box is ticket, the membership price will be calculated based on the number of days left until the end date compared to the number of days in a regular membership period').
+      '</p>';
+  }
+
   public static function membership_fee_amount() {
     print '<p>' .
       t('Price for this membership per term. If this field is enabled, the default minimum membership fee from CiviCRM membership type settings will not be loaded.') .
