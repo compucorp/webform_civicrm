@@ -984,6 +984,37 @@ class wf_crm_admin_form {
             }
           }
         }
+
+        // Pro rate price checkbox
+        $fieldName = 'pro_rate_memberships';
+        $fidProRate = "civicrm_{$c}_membership_{$n}_membership_{$fieldName}";
+        $this->form['membership'][$c]['membership'][$fs][$fidProRate] = array(
+          '#type' => 'checkbox',
+          '#title' => t('Pro Rate price of Membership').'&nbsp;<span class="crm-container"><a class="helpicon" href="#membership_pro_rate_membership">&nbsp;</a></span>',
+          '#default_value' => !empty($this->settings['data']['membership'][$c]['membership'][$n][$fieldName]),
+        );
+        // Handle dependent fields for membership date rules.
+        $dependentFields = array (
+          array (
+            'field' => "civicrm_{$c}_membership_{$n}_membership_start_date_memberships",
+            'depends_on' => "civicrm_{$c}_membership_{$n}_membership_start_date_rules",
+          ),
+          array (
+            'field' => "civicrm_{$c}_membership_{$n}_membership_end_date_memberships",
+            'depends_on' => "civicrm_{$c}_membership_{$n}_membership_end_date_rules",
+          ),
+          array (
+            'field' => "civicrm_{$c}_membership_{$n}_membership_pro_rate_memberships",
+            'depends_on' => "civicrm_{$c}_membership_{$n}_membership_end_date_rules",
+          ),
+        );
+        foreach ($dependentFields as $dependentField) {
+          $this->form['membership'][$c]['membership'][$fs][$dependentField['field']]['#states'] = array (
+            'visible' => array (
+              ":input[name='{$dependentField['depends_on']}']" => array ('value' => 2),
+            ),
+          );
+        }
       }
     }
   }
@@ -1311,7 +1342,7 @@ class wf_crm_admin_form {
       }
       // Remove 'create_civicrm_webform_element' option for membership date rules
       if (strpos($field['form_key'], '_start_date_rules') !== FALSE
-          || 
+          ||
           strpos($field['form_key'], '_start_date_memberships') !== FALSE
           ||
           strpos($field['form_key'], '_end_date_rules') !== FALSE
@@ -1547,6 +1578,9 @@ class wf_crm_admin_form {
           if (!in_array($ent, array('contact', 'participant', 'membership')) || isset($this->data['contact'][$c])) {
             $this->data[$ent][$c][$table][$n][$name] = $val;
           }
+        }
+        if ($name == 'pro_rate_memberships') {
+          $this->data[$ent][$c][$table][$n][$name] = $val;
         }
       }
     }

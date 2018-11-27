@@ -1235,7 +1235,7 @@ function wf_crm_get_fields($var = 'fields') {
         'type' => 'select',
         'expose_list' => TRUE,
         'value' => 0,
-        'exposed_empty_option' => t('Automatic'),
+        'exposed_empty_option' => '- ' . t('Automatic') . ' -',
       );
       $fields['membership_start_date_memberships'] = array (
         'name' => t('Select Membership Types'),
@@ -1248,17 +1248,13 @@ function wf_crm_get_fields($var = 'fields') {
         'type' => 'select',
         'expose_list' => TRUE,
         'value' => 0,
-        'exposed_empty_option' => t('Automatic'),
+        'exposed_empty_option' => '- ' . t('Automatic') . ' -',
       );
       $fields['membership_end_date_memberships'] = array (
         'name' => t('Select Membership Types'),
         'type' => 'select',
         'expose_list' => TRUE,
         'extra' => array('multiple' => 1),
-      );
-      $fields['membership_pro_rate_membership'] = array(
-        'name' => t('Pro-rate Price of Membership'),
-        'type' => 'checkbox',
       );
     }
     // CiviGrant fields

@@ -493,9 +493,34 @@ var wfCiviAdmin = (function ($, D) {
 
       // Membership constraints
       $('select[name$=_membership_num_terms]', context).once('crm-mem-date').change(function(e, type) {
-        var $dateWrappers = $(this).parent().siblings('[class$="-date"]').not('[class$="-status-override-end-date"]');
+        var $dateWrappers = $(this).parent().siblings('[class$="-date"]').not('[class$="-status-override-end-date"]')
+                .not('[class$="-rule-start-date"]').not('[class$="-rule-end-date"]');
         if ($(this).val() == '0') {
           $dateWrappers.show();
+          if (type !== 'init') {
+            $('input', $dateWrappers).prop('checked', true);
+          }
+        }
+        else {
+          $dateWrappers.hide().find('input').prop('checked', false);
+        }
+      }).trigger('change', 'init');
+      $('select[name$=_membership_start_date_rules]', context).change(function(e, type) {
+        var $dateWrappers = $(this).parent().siblings('[class$="membership-rule-start-date"]');
+        $dateWrappers.show();
+        if ($(this).val() == '1') {
+          if (type !== 'init') {
+            $('input', $dateWrappers).prop('checked', true);
+          }
+        }
+        else {
+          $dateWrappers.hide().find('input').prop('checked', false);
+        }
+      }).trigger('change', 'init');
+      $('select[name$=_membership_end_date_rules]', context).change(function(e, type) {
+        var $dateWrappers = $(this).parent().siblings('[class$="membership-rule-end-date"]');
+        $dateWrappers.show();
+        if ($(this).val() == '1') {
           if (type !== 'init') {
             $('input', $dateWrappers).prop('checked', true);
           }
@@ -512,28 +537,6 @@ var wfCiviAdmin = (function ($, D) {
           $target.show();
         }
       }).change();
-
-      $('select[name$=_membership_start_date_rules]', context).change(function(e, type) {
-        var $dateRuleMembershipField = $(this).parent().siblings('[class$="-start-date-memberships"]');
-        var $relativeToExistingMembership = 2;
-        if ($(this).val() == $relativeToExistingMembership) {
-          $dateRuleMembershipField.show();
-        }
-        else {
-          $dateRuleMembershipField.hide();
-        }
-      }).trigger('change', 'init');
-      
-      $('select[name$=_membership_end_date_rules]', context).change(function(e, type) {
-        var $dateRuleMembershipField = $(this).parent().siblings('[class$="-end-date-memberships"]');
-        var $relativeToExistingMembership = 2;
-        if ($(this).val() == $relativeToExistingMembership) {
-          $dateRuleMembershipField.show();
-        }
-        else {
-          $dateRuleMembershipField.hide();
-        }
-      }).trigger('change', 'init');
 
       function billingMessages() {
         var $pageSelect = $('[name=civicrm_1_contribution_1_contribution_contribution_page_id]');

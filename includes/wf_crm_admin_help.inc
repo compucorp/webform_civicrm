@@ -308,11 +308,12 @@ class wf_crm_admin_help {
       '</p>';
   }
 
+  
   public static function membership_start_date_rules() {
     print '<p>'.
       t('\'Automatic\' indicates that the start date will follow normal CiviCRM rules. i.e. New memberships will start immediately from date of sign-up and renewals will extend memberships.').
       '</p><br /><p>'.
-      t('User select will create a new webform date component that the administrator can configure in many ways including adding a fixed or relative start or end date.').'</p>'.
+      t('\'User select\' will create a new webform date component that the administrator can configure in many ways including adding a fixed or relative start or end date.').'</p>'.
       '</p><br /><p>'.
       t('\'Relative to active membership end date\' will modify the start date of the new membership as follows:
         <p>It will first check whether the user has an existing membership of this type. If so it will follow the automatic membership rules.</p>
@@ -320,16 +321,27 @@ class wf_crm_admin_help {
         <p>If so it will set the start date of the new membership to be the day following the end date of the existing active membership.</p>
         <p>If the user currently has multiple relevant membership types the start date will be one day following the end date of the membership with the latest end date.</p>');
   }
-
+  
   public static function membership_end_date_rules() {
     print '<p>'.
       t('"Automatic" indicates that new membership end date will be calculated according to the start date and the membership duration').
       '</p>';
   }
-
+  
   public static function membership_pro_rate_membership() {
     print '<p>'.
-      t('If this box is ticket, the membership price will be calculated based on the number of days left until the end date compared to the number of days in a regular membership period').
+      t('If this box is ticked, the membership price will be calculated based on the number of days left until the end date compared to the number of days in a regular membership period').
+      '</p>';
+  }
+   public static function membership_start_date_memberships() {
+    print '<p>'.
+      t('If you do not select a membership type, new membership will start immediately once the current active membership with the latest end date has expired.').
+      '</p>';
+  }
+  
+  public static function membership_end_date_memberships() {
+    print '<p>'.
+      t('If you do not select a membership type, new membership will end when the current active membership with the latest end date expires.').
       '</p>';
   }
 
