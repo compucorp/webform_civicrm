@@ -84,6 +84,11 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       $this->validateParticipants();
     }
 
+    // Validate end dates as per membership date rules.
+    if(!empty($this->data['membership'])) {
+      $this->validateMembershipDateRules();
+    }
+
     // Process live contribution. If the transaction is unsuccessful it will trigger a form validation error.
     if ($this->contribution_page) {
       // Ensure contribution js is still loaded if the form has to refresh
@@ -102,6 +107,35 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     // Even though this object is destroyed between page submissions, this trick allows us to persist some data - see above
     $form_state['civicrm']['ent'] = $this->ent;
     $form_state['civicrm']['line_items'] = $this->line_items;
+  }
+
+  /**
+   * Validate function for membership date rules.
+   */
+  public function validateMembershipDateRules() {
+    if (!empty($this->data['membership'])) {
+      foreach ($this->ent['contact'] as $c => $contact) {
+        if ($contact['id'] && isset($this->all_sets['membership']) && !empty($this->data['membership'][$c]['number_of_membership'])) {
+          $isError = FALSE;
+          $membershipFieldName = '';
+          foreach (wf_crm_aval($this->data, "membership:$c:membership", array()) as $n => $params) {
+            $params = $this->processMembershipDateRules($contact['id'], $params, $c, $n);
+            $membershipFieldName = "civicrm_{$c}_membership_{$n}_membership_membership_type_id";
+            if (!empty($params['end_date_rules']) && $params['end_date_rules'] == 2 && empty($params['end_date'])) {
+              $isError = TRUE;
+              break;
+            }
+            elseif (!empty($params['end_date']) && (strtotime($params['end_date']) < time())) {
+              $isError = TRUE;
+              break;
+            }
+          }
+          if ($isError) {
+            form_set_error($membershipFieldName, 'Unfortuntately you cannot purchase this item as your membership has expired.');
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -748,8 +782,9 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
    */
   private function saveContactLocation($contact, $cid, $c) {
     // Check which location_type_id is to be set as is_primary=1;
-    $is_primary_address_location_type = $contact['address'][1]['location_type_id'];
-    $is_primary_email_location_type = $contact['email'][1]['location_type_id'];
+    $is_primary_address_location_type = wf_crm_aval($contact, 'address:1:location_type_id');
+    $is_primary_email_location_type = wf_crm_aval($contact, 'email:1:location_type_id');
+
     foreach (wf_crm_location_fields() as $location) {
       if (!empty($contact[$location])) {
         $existing = array();
@@ -1124,6 +1159,14 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       $types = wf_crm_apivalues('membership_type', 'get');
     }
     $existing = $this->findMemberships($cid);
+    $membershipStatusValues = wf_civicrm_api('MembershipStatus', 'get', [
+      'sequential' => 1,
+      'return' => ["name", "id"],
+    ])['values'];
+    $membershipStatuses = array();
+    foreach ($membershipStatusValues as $val) {
+      $membershipStatuses[$val['id']] = $val['name'];
+    }
     foreach (wf_crm_aval($this->data, "membership:$c:membership", array()) as $n => $params) {
       $membershipStatus = "";
       $membershipEndDate = "";
@@ -1141,9 +1184,65 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       // But not necessarily the same membership type to allow for upsell
       if (!empty($params['num_terms'])) {
         $type = $types[$params['membership_type_id']];
+        $oldMembershipId = 0;
+        $mode = '';
+        $matchingMembership = null;
         foreach ($existing as $mem) {
           $existing_type = $types[$mem['membership_type_id']];
-          if ($type['domain_id'] == $existing_type['domain_id'] && $type['member_of_contact_id'] == $existing_type['member_of_contact_id']) {
+          if ($type['domain_id'] == $existing_type['domain_id'] &&
+            isset($params['start_date_rules']) && $params['start_date_rules'] == 2 &&
+            in_array($mem['membership_type_id'], $params['start_date_memberships'])) {
+            $params['start_date'] = $mem['end_date'];
+            $endDate = strtotime($params['start_date'] . '+' . $type['duration_interval'] . ' ' . $type['duration_unit']);
+            $params['end_date'] = date( "Y-m-d", $endDate);
+          }
+          if ($type['domain_id'] == $existing_type['domain_id'] &&
+            isset($params['end_date_rules']) && $params['end_date_rules'] == 2 &&
+            ($type['member_of_contact_id'] == $existing_type['member_of_contact_id'] ||
+              in_array($mem['membership_type_id'], $params['end_date_memberships']))) {
+            // selected start date
+            if (isset($params['start_date_rules']) && $params['start_date_rules'] == 1) {
+              $params['start_date'] = $params['rule_start_date'];
+            }
+            else {
+              $params['start_date'] = date( "Y-m-d");
+            }
+            //
+            if (!isset($params['add_to_existing_recur_contribution'])) {
+              continue;
+            }
+            switch ($params['add_to_existing_recur_contribution']) {
+              case 1:
+                $mode = 'upgrade';
+                break;
+              case 2:
+                $mode = 'addon';
+                break;
+            }
+            //
+            if ($mode == 'addon') {
+              // new membership has same end date
+              $is_active = $mem['is_active'];
+              $membershipStatus = $mem['status'];
+              $params['end_date'] = $mem['end_date'];
+              $oldMembershipId = $mem['id'];
+              break;
+            }
+            if ($mode == 'upgrade') {
+              // end current membership
+              $tempParams = array(
+                'id' => $mem['id'],
+                'end_date' => date("Y-m-j", strtotime("-1 days", strtotime($params['start_date']))),
+                //'status_id' => array_search('Expired', $membershipStatuses),
+              );
+              $result = wf_civicrm_api('membership', 'create', $tempParams);
+              // new membership has same end date
+              $is_active = $mem['is_active'];
+              $membershipStatus = $mem['status'];
+              $params['end_date'] = $mem['end_date'];
+              $oldMembershipId = $mem['id'];
+              break;
+            }
             $params['id'] = $mem['id'];
             // If we have an exact match, look no further
             if ($mem['membership_type_id'] == $params['membership_type_id']) {
@@ -1169,7 +1268,7 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
         // Pending payment status
         if ($this->contributionIsIncomplete && $this->getMembershipTypeField($params['membership_type_id'], 'minimum_fee')) {
           if ($is_active == FALSE) {
-            $params['status_id'] = 'Pending';
+            $params['status_id'] = array_search('Pending', $membershipStatuses);
           } else {
             $params['status_id'] = $membershipStatus;
             $params['end_date'] = $membershipEndDate;
@@ -1183,9 +1282,13 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       $params['contact_id'] = $cid;
       // The api won't let us manually set status without this weird param
       $params['skipStatusCal'] = !empty($params['status_id']);
+      // Process date rules only for new memberships.
+      if (!isset($params['id'])) {
+        $params = $this->processMembershipDateRules($cid, $params, $c, $n);
+      }
 
       // if the membership is to be auto-renewed, we set its related recurring contribution ID
-      if ($params['auto_renew']) {
+      if (!empty($params['auto_renew'])) {
         $contributionID = $this->ent['contribution'][1]['id'];
         $contribution = wf_civicrm_api('Contribution', 'get', array(
             'sequential' => 1,
@@ -1202,6 +1305,21 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       $result = wf_civicrm_api('membership', 'create', $params);
 
       if (!empty($result['id'])) {
+        // move contributions to new membership
+        if ($mode != '' && $oldMembershipId != 0) {
+          $memberPayments = wf_civicrm_api('MembershipPayment', 'get', [
+            'sequential' => 1,
+            'membership_id' => $oldMembershipId,
+          ])['values'];
+          foreach ($memberPayments as $memberPayment) {
+            $a = wf_civicrm_api('MembershipPayment', 'create', [
+              'id' => $memberPayment['id'],
+              'membership_id' => $result['id'],
+              'contribution_id' => $memberPayment['contribution_id']
+            ]);
+          }
+        }
+
         // Issue #2516924 If existing membership create renewal activity
         if (!empty($params['id'])) {
           $membership = $result['values'][$result['id']];
@@ -1224,6 +1342,77 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
         }
       }
     }
+  }
+
+  /**
+   * Process membership date rules
+   */
+  private function processMembershipDateRules($cid, $params, $c, $n) {
+    $membershipParams = array (
+      'sequential' => 1,
+      'active_only' => 1,
+      'contact_id' => $cid,
+      'options' => array ('sort' => "end_date DESC", 'limit' => 1),
+    );
+    $rawValues = _webform_client_form_submit_flatten($this->node, wf_crm_aval($this->form_state, 'values:submitted'));
+
+    // Process start date rules.
+    if (!empty($params['start_date_rules']) && $params['start_date_rules'] == 1) {
+      $fieldName = 'rule_start_date';
+      $fieldKey = "civicrm_{$c}_membership_{$n}_membership_{$fieldName}";
+      $componentId = $this->getComponent($fieldKey)['cid'];
+      if (!empty($params['rule_start_date'])) {
+        $params['start_date'] = $params['rule_start_date'];
+      }
+      elseif (!empty($rawValues[$componentId])) {
+        $params['start_date'] = $rawValues[$componentId]['year'] . '-' . $rawValues[$componentId]['month'] . '-' . $rawValues[$componentId]['day'];
+      }
+    }
+    elseif (!empty($params['start_date_rules']) && $params['start_date_rules'] == 2){
+      // Handle case when memberships are selected for start date rules.
+      if (!empty($params['start_date_memberships'])) {
+        $membershipParams['membership_type_id'] = array (
+          'IN' => $params['start_date_memberships']
+        );
+      }
+
+      $activeMemberships = civicrm_api3('Membership', 'get', $membershipParams);
+      if ($activeMemberships['count']) {
+        $activeMembershipsEndDate = new DateTime($activeMemberships['values'][0]['end_date']);
+        $start_date = $activeMembershipsEndDate->modify('+1 day');
+        $params['start_date'] = $start_date->format('Ymd');
+      }
+    }
+
+    // Process end date rules.
+    if (!empty($params['end_date_rules']) && $params['end_date_rules'] == 1) {
+      $fieldName = 'rule_end_date';
+      $fieldKey = "civicrm_{$c}_membership_{$n}_membership_{$fieldName}";
+      $componentId = $this->getComponent($fieldKey)['cid'];
+      if (!empty($params['rule_end_date'])) {
+        $params['end_date'] = $params['rule_end_date'];
+      }
+      elseif (!empty($rawValues[$componentId])) {
+        $params['start_date'] = $rawValues[$componentId]['year'] . '-' . $rawValues[$componentId]['month'] . '-' . $rawValues[$componentId]['day'];
+      }
+    }
+    elseif (!empty($params['end_date_rules']) && $params['end_date_rules'] == 2) {
+      // Handle case when memberships are selected for end date rules.
+      if (!empty($params['end_date_memberships'])) {
+        $membershipParams['membership_type_id'] = array (
+          'IN' => $params['end_date_memberships']
+        );
+      }
+      $activeMemberships = civicrm_api3('Membership', 'get', $membershipParams);
+      if ($activeMemberships['count']) {
+        $activeMembershipsEndDate = $activeMemberships['values'][0]['end_date'];
+        if (empty($params['start_date'])) {
+          $params['start_date'] = date('Y-m-d');
+        }
+        $params['end_date'] = $activeMembershipsEndDate;
+      }
+    }
+    return $params;
   }
 
   /**
@@ -1541,6 +1730,16 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
               }
             }
 
+            // Pro rate logic.
+            if (!empty($item['end_date_rules'])
+                &&
+                !empty($item['pro_rate_memberships'])
+                &&
+                $item['end_date_rules'] == 2
+            ) {
+              $price = $this->pro_rated_membership_fee($type, $price, $c, $n, $item);
+            }
+
             if ($price) {
               $unitPrice = $this->calculateSingleInstallmentAmount($price);
 
@@ -1584,6 +1783,38 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     return round($this->totalContribution, 2);
   }
 
+  /**
+   * Calculate pro rated membership fee.
+   * @param Integer $type
+   * @param Float $price
+   * @param Integer $c
+   * @param Array $item
+   * @return Float $price
+   */
+  private function pro_rated_membership_fee($type, $price, $c, $n, $item) {
+    $durationInterval = $this->getMembershipTypeField($type, 'duration_interval');
+    $durationUnit = $this->getMembershipTypeField($type, 'duration_unit');
+
+    // Calculate price/day.
+    $dateToday = date('Y-m-d');
+    $dateAfterGiveDuration = date('Y-m-d', strtotime("{$dateToday} +{$durationInterval} {$durationUnit}"));
+    $dateToday = date_create($dateToday);
+    $dateAfterGiveDuration = date_create($dateAfterGiveDuration);
+    $durationInDays = date_diff($dateToday, $dateAfterGiveDuration)->format('%a');
+
+    $pricePerDay = $price / $durationInDays;
+
+    // Find number of pro rate days.
+    $params = $this->processMembershipDateRules($this->existing_contacts[$c], $item, $c, $n);
+    $start_date = date_create($params['start_date']);
+    $end_date = date_create($params['end_date']);
+    $proRateDays = date_diff($start_date, $end_date)->format('%a');
+
+    // Calculate Pro Rated membership fee.
+    $price = $pricePerDay * $proRateDays;
+
+    return $price;
+  }
 
   private function calculateSingleInstallmentAmount($totalAmount) {
     $installmentAmount = $totalAmount;
@@ -1783,11 +2014,11 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
    */
   private function submitLivePayment() {
     $contributionParams = $this->contributionParams();
+    $recurContributionExtraParams = $this->generateRecurringContributionParams($contributionParams);
+    $contributionParams = array_merge($contributionParams, $recurContributionExtraParams);
 
     // Only if #installments = 1, do we process a single transaction/contribution. #installments = 0 in CiviCRM Core means open ended commitment;
-    $numInstallments = wf_crm_aval($contributionParams, 'installments', 1, TRUE);
-    $frequencyInterval = wf_crm_aval($contributionParams, 'frequency_unit');
-    if ($numInstallments != 1 && !empty($frequencyInterval)) {
+    if (!empty($recurContributionExtraParams)) {
       $result = $this->contributionRecur($contributionParams);
     }
     else {
@@ -1803,35 +2034,86 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       }
       return;
     }
-    $this->ent['contribution'][1]['id'] = $result['id'];
+
+    if (!isset($params['contribution_recur_id'])) {
+      $this->ent['contribution'][1]['id'] = $result['id'];
+    }
   }
 
   /**
    * Generate recurring contribution and transact the first one
    */
   private function contributionRecur($contributionParams, $paymentType = 'live') {
-    // Create Params for Creating the Recurring Contribution Series and Create it
-    $contributionRecurParams = array(
-      'sequential' => 1,
-      'contact_id' => $contributionParams['contact_id'],
-      'frequency_interval' => wf_crm_aval($contributionParams, 'frequency_interval', 1),
-      'frequency_unit' => wf_crm_aval($contributionParams, 'frequency_unit', 'month'),
-      'installments' => $contributionParams['installments'],
-      'amount' => $contributionParams['total_amount'],
-      'contribution_status_id' => 5,
-      'currency' => $contributionParams['currency'],
-      'payment_processor_id' =>  $contributionParams['payment_processor_id'],
-      'financial_type_id' =>  $contributionParams['financial_type_id'],
-      'auto_renew' =>  !empty($contributionParams['auto_renew']) ? 1 : 0,
-    );
+    $installments = $contributionParams['installments'];
 
-    if(empty($contributionParams['payment_processor_id'])) {
-      $contributionRecurParams['payment_processor_id'] = 'null';
+    if ($installments != 0) {
+      // DRU-2862396 - we must ensure to only present 2 decimals to CiviCRM:
+      $contributionRecurAmount = floor(($contributionParams['total_amount'] / $installments) * 100) / 100;
+      $contributionFirstAmount = $contributionParams['total_amount'] - $contributionRecurAmount * ($installments - 1);
+    }
+    else {
+      $contributionRecurAmount = $contributionParams['total_amount'];
+      $contributionFirstAmount = $contributionRecurAmount;
     }
 
-    $resultRecur = wf_civicrm_api('ContributionRecur', 'create', $contributionRecurParams);
+    $APIAction = 'transact';
+    if ($paymentType === 'deferred') {
+      $APIAction = 'create';
+    }
 
-    // Run the Transaction - and Create the Contribution Record - relay Recurring Series information in addition to the already existing Params [and re-key where needed]; at times two keys are required
+    $updateExisting = null;
+
+    if (isset($contributionParams['contribution_recur_id'])) {
+      $updateExisting = $contributionParams['contribution_recur_id'];
+    }
+    $additionalParams = array();
+    if (!$updateExisting) {
+      // Create Params for Creating the Recurring Contribution Series and Create it
+      $contributionRecurParams = array(
+        'sequential' => 1,
+        'contact_id' => $contributionParams['contact_id'],
+        'frequency_interval' => wf_crm_aval($contributionParams, 'frequency_interval', 1),
+        'frequency_unit' => wf_crm_aval($contributionParams, 'frequency_unit', 'month'),
+        'installments' => $installments,
+        'amount' => $contributionRecurAmount,
+        'contribution_status_id' => 5,
+        'currency' => $contributionParams['currency'],
+        'payment_processor_id' => $contributionParams['payment_processor_id'],
+        'financial_type_id' => $contributionParams['financial_type_id'],
+        'auto_renew' =>  !empty($contributionParams['auto_renew']) ? 1 : 0,
+      );
+
+      // handle custom field 'Next Payment Plan Period'
+      if (isset($contributionParams['next_payment_plan_period'])) {
+        $customFieldID = wf_civicrm_api('CustomField', 'get', [
+          'sequential' => 1,
+          'return' => ["id"],
+          'name' => "next_period",
+        ])['values'][0]['id'];
+
+        if ($customFieldID) {
+          $contributionRecurParams['custom_' . $customFieldID] = $contributionParams['next_payment_plan_period'];
+        }
+        unset($contributionParams['next_payment_plan_period']);
+      }
+
+      if (empty($contributionParams['payment_processor_id'])) {
+        $contributionRecurParams['payment_processor_id'] = 'null';
+      }
+      $resultRecur = wf_civicrm_api('ContributionRecur', 'create', $contributionRecurParams);
+      // Run the Transaction - and Create the Contribution Record - relay Recurring Series information in addition to the already existing Params [and re-key where needed]; at times two keys are required
+      $contributionParams['total_amount'] = $contributionFirstAmount;
+    }
+    else {
+      $resultRecurold = wf_civicrm_api('ContributionRecur', 'get', ['id' => $updateExisting])['values'];
+      $newParams = reset($resultRecurold);
+      $newParams['id'] = $updateExisting;
+      $newParams['amount'] = $contributionRecurAmount;
+      $resultRecur = wf_civicrm_api('ContributionRecur', 'create', $newParams);
+      $resultRecur = $newParams;
+      $contributionRecurParams['frequency_interval'] = $resultRecur['frequency_interval'];
+      $contributionRecurParams['frequency_unit'] = $resultRecur['frequency_unit'];
+    }
     $additionalParams = array(
       'contribution_recur_id' => $resultRecur['id'],
       'contributionRecurID' => $resultRecur['id'],
@@ -1841,23 +2123,98 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       'frequency_unit' => wf_crm_aval($contributionParams, 'frequency_unit', 'month'),
     );
 
-    $APIAction = 'transact';
-    if ($paymentType === 'deferred') {
-      $APIAction = 'create';
+    if (isset($contributionParams['update_existing_contributions'])) {
+      $first = true;
+      foreach ($contributionParams['update_existing_contributions'] as $id => $total) {
+        $contrib = wf_civicrm_api('Contribution', 'create', [
+          'total_amount' => $total,
+          'id' => $id,
+        ]);
+        if ($first) {
+          $contributionParams['id'] = $id;
+          $contributionParams['total_amount'] = $total;
+          $first = false;
+        }
+      }
     }
     $result = wf_civicrm_api('contribution', $APIAction, $contributionParams + $additionalParams);
-
     // If transaction was successful - Update the Recurring Series - currency must be resubmitted or else it will re-default to USD; invoice_id is that of the initiating Contribution
     if (empty($result['error_message'])) {
-      $resultUpdateRecur = wf_civicrm_api('ContributionRecur', 'create', array(
+      $newParams = array(
         'id' => $resultRecur['id'],
         'currency' => $contributionParams['currency'],
         'next_sched_contribution_date' => date("Y-m-d H:i:s", strtotime('+' . $contributionRecurParams['frequency_interval'] . ' ' . $contributionRecurParams['frequency_unit'])),
         'invoice_id' => $result['values'][$result['id']]['invoice_id'],
-        'payment_instrument_id' => $result['values'][$result['id']]['payment_instrument_id'],
-      ));
+      );
+      if (!$updateExisting) {
+        $newParams['payment_instrument_id'] = $result['values'][$result['id']]['payment_instrument_id'];
+      }
+      $resultUpdateRecur = wf_civicrm_api('ContributionRecur', 'create', $newParams);
     }
     return $result;
+  }
+
+  private function getRecurContributions($membershipID) {
+    $result = civicrm_api3('MembershipPayment', 'get', array(
+      'sequential' => 1,
+      'contribution_id.contribution_recur_id.id' => ['IS NOT NULL' => TRUE],
+      'options' => ['limit' => 0],
+      'return' => array(
+        'contribution_id.contribution_recur_id.id',
+        'contribution_id.contribution_recur_id.contact_id',
+        'contribution_id.contribution_recur_id.start_date',
+        'contribution_id.contribution_recur_id.end_date',
+        'contribution_id.contribution_recur_id.next_sched_contribution_date',
+        'contribution_id.contribution_recur_id.amount',
+        'contribution_id.contribution_recur_id.currency',
+        'contribution_id.contribution_recur_id.frequency_unit',
+        'contribution_id.contribution_recur_id.frequency_interval',
+        'contribution_id.contribution_recur_id.installments',
+        'contribution_id.contribution_recur_id.contribution_status_id',
+        'contribution_id.contribution_recur_id.is_test',
+        'contribution_id.contribution_recur_id.payment_processor_id',
+      ),
+      'membership_id' => $membershipID,
+    ));
+    $recurringContributions = array();
+    $contributionStatuses = CRM_Contribute_PseudoConstant::contributionStatus();
+
+    foreach ($result['values'] as $payment) {
+      $recurringContributionID = $payment['contribution_id.contribution_recur_id.id'];
+      $alreadyProcessed = isset($recurringContributions[$recurringContributionID]);
+
+      if ($alreadyProcessed) {
+        continue;
+      }
+
+      foreach ($payment as $field => $value) {
+        $key = strtr($field, array('contribution_id.contribution_recur_id.' => ''));
+        $recurringContributions[$recurringContributionID][$key] = $value;
+      }
+
+      $contactID = $recurringContributions[$recurringContributionID]['contact_id'];
+      $contributionStatusID = $recurringContributions[$recurringContributionID]['contribution_status_id'];
+
+      if (!$this->isContributionPending($contributionStatusID)) {
+        unset($recurringContributions[$recurringContributionID]);
+        continue;
+      }
+
+      $recurringContributions[$recurringContributionID]['id'] = $recurringContributionID;
+      $recurringContributions[$recurringContributionID]['contactId'] = $contactID;
+      $recurringContributions[$recurringContributionID]['contribution_status'] = CRM_Utils_Array::value($contributionStatusID, $contributionStatuses);
+
+      //$this->setActionsForRecurringContribution($recurringContributionID, $recurringContributions[$recurringContributionID]);
+    }
+    return $recurringContributions;
+  }
+
+  private function isContributionPending($statusId) {
+    $contributionStatuses = CRM_Contribute_PseudoConstant::contributionStatus();
+    if (in_array($contributionStatuses[$statusId], array('Pending', 'In Progress', 'Partially paid'))) {
+      return TRUE;
+    }
+    return FALSE;
   }
 
   /**
@@ -2078,6 +2435,116 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     $params['contact_id'] = $this->ent['contact'][1]['id'];
     $params['total_amount'] = round($this->totalContribution, 2);
 
+    $updateExisting = null;
+    foreach ($this->ent['contact'] as $c => $contact) {
+      if ($contact['id'] != $params['contact_id']) {
+        continue;
+      }
+      if ($contact['id'] && isset($this->all_sets['membership']) && !empty($this->data['membership'][$c]['number_of_membership'])) {
+        $cid = $contact['id'];
+        static $types;
+        if (!isset($types)) {
+          $types = wf_crm_apivalues('membership_type', 'get');
+        }
+        $existing = $this->findMemberships($cid);
+
+        foreach (wf_crm_aval($this->data, "membership:$c:membership", array()) as $n => $mparams) {
+          $type = $types[$mparams['membership_type_id']];
+          if (!isset($mparams['add_to_existing_recur_contribution'])) {
+            continue;
+          }
+          $mode = null;
+          switch ($mparams['add_to_existing_recur_contribution']) {
+            case 1:
+              $mode = 'upgrade';
+              break;
+            case 2:
+              $mode = 'addon';
+              break;
+          }
+          $renewExisting = false;
+          if (isset($mparams['membership_renew_existing_recur_contribution'])) {
+            $renewExisting = true;
+          }
+          foreach ($existing as $mem) {
+            $existing_type = $types[$mem['membership_type_id']];
+
+            // get recurring contributions for membership
+            $recurContributions = $this->getRecurContributions($mem['id']);
+            $recurContributions = reset($recurContributions);
+
+            if ($type['domain_id'] == $existing_type['domain_id'] &&
+              isset($mparams['start_date_rules']) && $mparams['start_date_rules'] == 2 &&
+              in_array($mem['membership_type_id'], $mparams['start_date_memberships'])) {
+              if (isset($recurContributions['id'])) {
+                $result = civicrm_api3('Contribution', 'get', [
+                  'sequential' => 1,
+                  'contribution_recur_id' => $recurContributions['id'],
+                ]);
+                $installments = count($result['values']);
+
+                // handle 'renew existing contribution'
+                if ($installments == 1 && $params['installments'] == 1) {
+                  $params['contribution_recur_id'] = $recurContributions['id'];
+                } elseif ($installments > 1 || $params['installments'] > 1) {
+                  $params['next_payment_plan_period'] = $recurContributions['id'];
+                }
+              }
+            }
+
+            if ($type['domain_id'] == $existing_type['domain_id'] &&
+              isset($mparams['end_date_rules']) && $mparams['end_date_rules'] == 2 &&
+              in_array($mem['membership_type_id'], $mparams['end_date_memberships'])) {
+              if (isset($recurContributions['id'])) {
+                $params['contribution_recur_id'] = $recurContributions['id'];
+                // go through all the installments
+                $result = civicrm_api3('Contribution', 'get', [
+                  'sequential' => 1,
+                  'contribution_recur_id' => $recurContributions['id'],
+                ]);
+                $unpaid = array();
+                $installments = 0;
+                foreach ($result['values'] as $installment) {
+                  if ($this->isContributionPending($installment['contribution_status_id'])) {
+                    $unpaid[] = $installment;
+                  }
+                  $installments++;
+                }
+
+                // handle 'add to existing recurring contribution'
+                if (count($unpaid) > 0) {
+                  $membershipType = civicrm_api3('MembershipType', 'get', [
+                    'sequential' => 1,
+                    'id' => $mparams['membership_type_id'],
+                  ])['values'][0];
+                  $addOnAmount = $membershipType['minimum_fee'] / count($unpaid);
+                  $newTotal = 0;
+                  foreach ($unpaid as $unpaidContribution) {
+                    if ($mode == 'addon') {
+                      $params['update_existing_contributions'][$unpaidContribution['id']] = $unpaidContribution['total_amount'] + $addOnAmount;
+                      $newTotal += $unpaidContribution['total_amount'] + $addOnAmount;
+                    }
+                    if ($mode == 'upgrade') {
+                      $params['update_existing_contributions'][$unpaidContribution['id']] = $addOnAmount;
+                      $newTotal += $addOnAmount;
+                    }
+                  }
+                  $params['total_amount'] = $newTotal;
+                  $params['installments'] = count($unpaid);
+                }
+                else {
+                  // no unpaid contributions
+                  // add a new contribution with membership amount
+                  $params['installments'] = 1;
+                  $params['frequency_unit'] = 1;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Some processors use this for matching and updating the contribution status
     if (!$this->contributionIsPayLater) {
       $params['invoice_id'] = $this->data['contribution'][1]['contribution'][1]['invoiceID'] = md5(uniqid(rand(), TRUE));
@@ -2232,8 +2699,14 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
 
       $lineItemRecord = json_decode(json_encode($item), FALSE);
       // Add financial_item and entity_financial_trxn
-      $taxTrxnID = !empty($lineItemRecord->tax_amount);
-      CRM_Financial_BAO_FinancialItem::add($lineItemRecord, $contributionResult, $taxTrxnID);
+      // hence that we call CRM_Financial_BAO_FinancialItem::add() twice,
+      // once to create the line item 'total amount' financial_item record and the 2nd
+      // one to create the line item 'tax amount' financial_item  record.
+      CRM_Financial_BAO_FinancialItem::add($lineItemRecord, $contributionResult);
+      if (!empty($lineItemRecord->tax_amount)) {
+        CRM_Financial_BAO_FinancialItem::add($lineItemRecord, $contributionResult, TRUE);
+      }
+
       // Create participant/membership payment records
       if (isset($item['membership_id']) || isset($item['participant_id'])) {
         $type = isset($item['participant_id']) ? 'participant' : 'membership';
@@ -2634,4 +3107,74 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
 
     return $values;
   }
+
+  /**
+   * This generates a list of recurring contribution parameters
+   * to be appended to the original ones if there is a need to
+   * generated a recurring contribution. If there is no need then
+   * and empty array will be returned.
+   *
+   * Cases in which a recurring contribution need to be created is if there
+   * are memberships (or one membership) to be auto renewed or when there
+   * is a recurring contribution configured by the user on the webform.
+   */
+  private function generateRecurringContributionParams($contributionParams) {
+    $generatedParams = array();
+    $installmentsCount = wf_crm_aval($contributionParams, 'installments', 1, TRUE);
+    if ($this->isThereMembershipToBeAutoRenewed()) {
+      $generatedParams['installments'] = 'null';
+      $generatedParams['auto_renew'] = 1;
+      if (empty($contributionParams['frequency_unit']) || empty($contributionParams['frequency_interval'])) {
+        $minimumFrequencyData =  $this->calculateFrequencyUnitAndInterval();
+        $generatedParams['frequency_unit'] = $minimumFrequencyData['unit'];
+        $generatedParams['frequency_interval'] = $minimumFrequencyData['interval'];
+      }
+    }
+    if ($installmentsCount >= 1) {
+      $generatedParams['installments'] = $installmentsCount;
+    }
+    return $generatedParams;
+  }
+  /**
+   * Determines if the webform is configured to have
+   * any membership to be autorenwed or not.
+   */
+  private function isThereMembershipToBeAutoRenewed() {
+    $autoRenewMembership = FALSE;
+    foreach ($this->data['membership'] as $contactMemberships) {
+      foreach($contactMemberships['membership'] as $membership) {
+        if (!empty($membership['auto_renew'])) {
+          $autoRenewMembership = TRUE;
+        }
+      }
+    }
+    return $autoRenewMembership;
+  }
+  /**
+   * If the user did not configure a recurring contribution
+   * or did not configure the frequency unit or Interval for it,
+   * this method will take care of that and generate both
+   * based on the frequency unit and duration of the membership.
+   */
+  private function calculateFrequencyUnitAndInterval() {
+    $membershipsTypeId = NULL;
+    foreach ($this->data['membership'] as $contactMemberships) {
+      if (!empty($membershipsTypeId)) {
+        break;
+      }
+      foreach($contactMemberships['membership'] as $membership) {
+        if ($membership['auto_renew']) {
+          $membershipsTypeId = $membership['membership_type_id'];
+          break;
+        }
+      }
+    }
+    $membershipTypeDetails = civicrm_api3('MembershipType', 'get', array(
+      'id' => $membershipsTypeId,
+      'sequential' => 1,
+      'return' => array('duration_unit', 'duration_interval'),
+    ))['values'][0];
+    return ['unit' => $membershipTypeDetails['duration_unit'], 'interval' => $membershipTypeDetails['duration_interval']];
+  }
+
 }

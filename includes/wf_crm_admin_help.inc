@@ -302,6 +302,48 @@ class wf_crm_admin_help {
       '</p>';
   }
 
+  public static function membership_start_date_rules() {
+    print '<p>'.
+      t('Select "Automatic" to create/ renew membership following default calculation.').
+      '</p><p>'.
+      t('Select "Selected date" to add a start date field to the form.').'</p>'.
+      '</p><p>'.
+      t('Select "After the end date of selected membership(s)" to start the new membership term after an active membership of the selected types').'</p>';
+  }
+
+  public static function membership_end_date_rules() {
+    print '<p>'.
+      t('Select "Automatic" to create/ renew membership following default calculation.').
+      '</p><p>'.
+      t('Select "Selected date" to add a end date field to the form.').'</p>'.
+      '</p><p>'.
+      t('Select "Match the end date of selected membership(s)" to match the end date of the new membership term with the end date of an active membership of the selected types').'</p>';
+  }
+
+  public static function membership_renew_existing_recur_contribution() {
+    print '<p>'.t('When there is an existing recurring contribution containing any of the selected membership types, this membership will be created as a renewal of the existing recurring contribution.').'</p><ol><li>'.
+    t('If both the existing recurring contribution and the recurring contribution configuration on the form are not payment in instalments, a new contribution with full amount of the membership will be created under the same recurring contribution.').'</li><li>'.
+    t('If either the existing recurring contribution or the recurring contribution configuration on the form is payment in instalments, a new recurring contribution will be created and the auto-renewal of the old recurring contribution will be cancelled.').'</li></ol>';
+  }
+
+  public static function membership_pro_rate_membership() {
+    print '<p>'.
+      t('If this box is ticked, the membership price will be calculated based on the number of days left until the end date compared to the number of days in a regular membership period').
+      '</p>';
+  }
+
+  public static function membership_start_date_memberships() {
+    print '<p>'.
+      t('If you do not select a membership type, new membership will start immediately once the current active membership with the latest end date has expired.').
+      '</p>';
+  }
+
+  public static function membership_end_date_memberships() {
+    print '<p>'.
+      t('If you do not select a membership type, new membership will end when the current active membership with the latest end date expires.').
+      '</p>';
+  }
+
   public static function membership_fee_amount() {
     print '<p>' .
       t('Price for this membership per term. If this field is enabled, the default minimum membership fee from CiviCRM membership type settings will not be loaded.') .
