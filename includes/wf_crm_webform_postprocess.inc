@@ -1233,7 +1233,7 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
               $tempParams = array(
                 'id' => $mem['id'],
                 'end_date' => date("Y-m-j", strtotime("-1 days", strtotime($params['start_date']))),
-                //'status_id' => array_search('Expired', $membershipStatuses),
+                'status_id' => array_search('Expired', $membershipStatuses),
               );
               $result = wf_civicrm_api('membership', 'create', $tempParams);
               // new membership has same end date
@@ -2045,16 +2045,8 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
    */
   private function contributionRecur($contributionParams, $paymentType = 'live') {
     $installments = $contributionParams['installments'];
-
-    if ($installments != 0) {
-      // DRU-2862396 - we must ensure to only present 2 decimals to CiviCRM:
-      $contributionRecurAmount = floor(($contributionParams['total_amount'] / $installments) * 100) / 100;
-      $contributionFirstAmount = $contributionParams['total_amount'] - $contributionRecurAmount * ($installments - 1);
-    }
-    else {
-      $contributionRecurAmount = $contributionParams['total_amount'];
-      $contributionFirstAmount = $contributionRecurAmount;
-    }
+    $contributionRecurAmount = $contributionParams['total_amount'];
+    $contributionFirstAmount = $contributionRecurAmount;
 
     $APIAction = 'transact';
     if ($paymentType === 'deferred') {
