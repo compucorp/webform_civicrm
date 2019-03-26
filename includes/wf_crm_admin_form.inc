@@ -970,6 +970,63 @@ class wf_crm_admin_form {
             }
           }
         }
+
+        // Pro rate price checkbox
+        $fieldName = 'pro_rate_memberships';
+        $fidProRate = "civicrm_{$c}_membership_{$n}_membership_{$fieldName}";
+        $this->form['membership'][$c]['membership'][$fs][$fidProRate] = array(
+          '#type' => 'checkbox',
+          '#title' => t('Pro Rate price of Membership').'&nbsp;<span class="crm-container"><a class="helpicon" href="#membership_pro_rate_membership">&nbsp;</a></span>',
+          '#default_value' => !empty($this->settings['data']['membership'][$c]['membership'][$n][$fieldName]),
+        );
+        // Handle dependent fields for membership date rules.
+        $dependentFields = array (
+          array (
+            'field' => "civicrm_{$c}_membership_{$n}_membership_start_date_memberships",
+            'depends_on' => "civicrm_{$c}_membership_{$n}_membership_start_date_rules",
+          ),
+          array (
+            'field' => "civicrm_{$c}_membership_{$n}_membership_end_date_memberships",
+            'depends_on' => "civicrm_{$c}_membership_{$n}_membership_end_date_rules",
+          ),
+          array (
+            'field' => "civicrm_{$c}_membership_{$n}_membership_pro_rate_memberships",
+            'depends_on' => "civicrm_{$c}_membership_{$n}_membership_end_date_rules",
+          ),
+          array (
+            'field' => "civicrm_{$c}_membership_{$n}_membership_renew_existing_recur_contribution",
+            'depends_on' => array(":input[name='civicrm_{$c}_membership_{$n}_membership_start_date_rules']" => array ('value' => 2)),
+          ),
+          array (
+            'field' => "civicrm_{$c}_membership_{$n}_membership_add_to_existing_recur_contribution",
+            'depends_on' => array(":input[name='civicrm_{$c}_membership_{$n}_membership_end_date_rules']" => array ('value' => 2)),
+          ),
+        );
+        $contribConditions = array();
+        for ($contrib = 1; $contrib <= count($this->data['contribution']); ++$contrib) {
+          $contribConditions[] = ":input[name='civicrm_{$contrib}_contribution_{$contrib}_contribution_frequency_unit']";
+        }
+        if (count($contribConditions) > 0) {
+          $contribConditions = implode(',', $contribConditions);
+          $dependentFields[3]['depends_on'][$contribConditions] = array ('!value' => 0);
+        }
+        foreach ($dependentFields as $dependentField) {
+          if (!is_array($dependentField['depends_on'])) {
+            $this->form['membership'][$c]['membership'][$fs][$dependentField['field']]['#states'] = array (
+              'visible' => array (
+                ":input[name='{$dependentField['depends_on']}']" => array ('value' => 2),
+              ),
+            );
+          }
+          else {
+            foreach ($dependentField['depends_on'] as $condition => $value) {
+              if (!isset($this->form['membership'][$c]['membership'][$fs][$dependentField['field']]['#states']['visible'])) {
+                $this->form['membership'][$c]['membership'][$fs][$dependentField['field']]['#states']['visible'] = array();
+              }
+              $this->form['membership'][$c]['membership'][$fs][$dependentField['field']]['#states']['visible'][$condition] = $value;
+            }
+          }
+        }
       }
     }
   }
@@ -1271,6 +1328,17 @@ class wf_crm_admin_form {
       if ($field['type'] != 'hidden') {
         $options += array('create_civicrm_webform_element' => t('- User Select -'));
       }
+      // Remove 'create_civicrm_webform_element' option for membership date rules
+      if (strpos($field['form_key'], '_start_date_rules') !== FALSE
+          ||
+          strpos($field['form_key'], '_start_date_memberships') !== FALSE
+          ||
+          strpos($field['form_key'], '_end_date_rules') !== FALSE
+          ||
+          strpos($field['form_key'], '_end_date_memberships') !== FALSE
+      ) {
+        unset($options['create_civicrm_webform_element']);
+      }
       $options += wf_crm_field_options($field, 'config_form', $this->data);
       $item += array(
         '#type' => 'select',
@@ -1498,6 +1566,9 @@ class wf_crm_admin_form {
           if (!in_array($ent, array('contact', 'participant', 'membership')) || isset($this->data['contact'][$c])) {
             $this->data[$ent][$c][$table][$n][$name] = $val;
           }
+        }
+        if ($name == 'pro_rate_memberships') {
+          $this->data[$ent][$c][$table][$n][$name] = $val;
         }
       }
     }
@@ -1901,7 +1972,8 @@ class wf_crm_admin_form {
    */
   public static function addFieldset($c, &$field, &$enabled, $settings, $ent = 'contact', $allow_create = FALSE) {
     $type = in_array($ent, self::$fieldset_entities) ? $ent : 'contact';
-    if (strpos($field['form_key'], '_custom_')) {
+    // Custom fields are placed in fieldsets by group (for contact fields only)
+    if (strpos($field['form_key'], '_custom_') && $type == 'contact') {
       $sid = explode('_custom', $field['form_key']);
       $sid = $sid[0] . '_fieldset';
       $customGroupKey = explode('_', $field['form_key'])[4];

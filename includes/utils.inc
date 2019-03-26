@@ -77,6 +77,15 @@ function wf_crm_field_options($field, $context, $data) {
     elseif ($table == 'membership' && $name == 'num_terms') {
       $ret = drupal_map_assoc(range(1, 9));
     }
+    elseif ($table == 'membership' && $name == 'start_date_rules') {
+      $ret = array(0 => t('Automatic'), 1 => t('Selected date'), 2 => t('After the end date of selected membership(s)'));
+    }
+    elseif ($table == 'membership' && $name == 'end_date_rules') {
+      $ret = array(0 => t('Automatic'), 1 => t('Selected date'), 2 => t('Match the end date of selected membership(s)'));
+    }
+    elseif ($table == 'membership' && $name == 'add_to_existing_recur_contribution') {
+      $ret = array(0 => t('No'), 1 => t('As an upgrade/downgrade to selected memberships'), 2 => t('As an add-on'));
+    }
     elseif ($table == 'membership' && $name == 'auto_renew') {
       $ret = array(1 => t('Yes'), 0 => t('No'));
     }
@@ -94,6 +103,10 @@ function wf_crm_field_options($field, $context, $data) {
       else {
         // Pass data into api.getoptions for contextual filtering
         $params += wf_crm_aval($data, "$ent:$c:$table:$n", array());
+        // We need the same options as membership_type_id for start_date_memberships and end_date_memberships
+        if (in_array($params['field'], array('start_date_memberships', 'end_date_memberships'))) {
+          $params['field'] = 'membership_type_id';
+        }
       }
       $ret = wf_crm_apivalues($table, 'getoptions', $params);
 
@@ -1154,6 +1167,50 @@ function wf_crm_get_fields($var = 'fields') {
       $fields['membership_end_date'] = array(
         'name' => t('End Date'),
         'type' => 'date',
+      );
+      // Membership Date Rule Fields
+      $fields['membership_start_date_rules'] = array(
+        'name' => t('Start Date'),
+        'type' => 'select',
+        'expose_list' => TRUE,
+        'value' => 0,
+        'exposed_empty_option' => t('Automatic'),
+      );
+      $fields['membership_start_date_memberships'] = array (
+        'name' => t('Select Membership Types'),
+        'type' => 'select',
+        'expose_list' => TRUE,
+        'extra' => array('multiple' => 1),
+      );
+      $fields['membership_renew_existing_recur_contribution'] = array (
+        'name' => t('Renew existing recurring contribution'),
+        'type' => 'checkbox',
+      );
+      $fields['membership_rule_start_date'] = array (
+        'name' => t('Start Date'),
+        'type' => 'date',
+      );
+      $fields['membership_end_date_rules'] = array(
+        'name' => t('End Date'),
+        'type' => 'select',
+        'expose_list' => TRUE,
+        'value' => 0,
+        'exposed_empty_option' => t('Automatic'),
+      );
+      $fields['membership_rule_end_date'] = array (
+        'name' => t('End Date'),
+        'type' => 'date',
+      );
+      $fields['membership_end_date_memberships'] = array (
+        'name' => t('Select Membership Types'),
+        'type' => 'select',
+        'expose_list' => TRUE,
+        'extra' => array('multiple' => 1),
+      );
+      $fields['membership_add_to_existing_recur_contribution'] = array (
+        'name' => t('Add to existing recurring contribution'),
+        'type' => 'select',
+        'expose_list' => TRUE,
       );
       $fields['membership_auto_renew'] = array(
         'name' => t('Auto-renew Membership?'),
