@@ -474,12 +474,12 @@ class wf_crm_webform_preprocess extends wf_crm_webform_base {
               webform_component_update($component);
             }
             $element['#options'] = $new;
-	    // Handle optgroups.
+            // Handle optgroups.
             // CiviCRM treats options that start with 'crm_optgroup' as optgroup
             // We create nested options for optgroups as Drupal FAPI expects
             $groupedOptions = [];
             $group = NULL;
-	    foreach ($element['#options'] as $key => $val) {
+            foreach ($element['#options'] as $key => $val) {
               if (strpos($key, 'crm_optgroup') === 0) {
                 $group = $val;
                 $groupedOptions[$group] = [];
