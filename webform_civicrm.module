@@ -252,8 +252,26 @@ function webform_civicrm_webform_component_info() {
 function webform_civicrm_webform_submission_presave($node, &$submission) {
   if (!empty($node->webform_civicrm)) {
     module_load_include('inc', 'webform_civicrm', 'includes/wf_crm_webform_postprocess');
+
+    $formatDate = FALSE;
+    foreach ($node->webform['components'] as $component) {
+      if (strpos($component['form_key'], 'civicrm_') === 0 && strpos($component['form_key'], '_custom_')) {
+        // custom field
+        $form_key_items = explode('_', $component['form_key']);
+        $custom_field_id = array_pop($form_key_items);
+        civicrm_initialize();
+        $result = civicrm_api3('CustomField', 'getSingle', [
+          'sequential' => 1,
+          'id' => $custom_field_id,
+        ]);
+        if ($result['data_type'] == 'Date') {
+          $formatDate = TRUE;
+        }
+      }
+    }
+
     $processor = wf_crm_webform_postprocess::singleton($node);
-    $processor->preSave($submission);
+    $processor->preSave($submission, $formatDate);
   }
 }
 

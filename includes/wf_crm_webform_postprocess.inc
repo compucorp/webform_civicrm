@@ -109,7 +109,7 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
    * @see webform_civicrm_webform_submission_presave
    * @param stdClass $submission
    */
-  public function preSave(&$submission) {
+  public function preSave(&$submission, $formatDate = FALSE) {
     $this->submission = &$submission;
     $this->data = $this->settings['data'];
     // Check for existing submission
@@ -122,7 +122,7 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       return;
     }
 
-    $this->fillDataFromSubmission();
+    $this->fillDataFromSubmission($formatDate);
 
     // Create/update contacts
     foreach ($this->data['contact'] as $c => $contact) {
@@ -2312,7 +2312,7 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
   /**
    * Fill data array with submitted form values
    */
-  private function fillDataFromSubmission() {
+  private function fillDataFromSubmission($formatDate = FALSE) {
     foreach ($this->enabled as $field_key => $fid) {
       $val = $this->submissionValue($fid);
       // If value is null then it was hidden by a webform conditional rule - skip it
@@ -2376,6 +2376,10 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
             $time = substr($time, -6);
           }
           $val .= $time;
+          if ($formatDate) {
+            $val = new DateTime($val);
+            $val = $val->format('YmdHis');
+          }
         }
         // The admin can change a number field to use checkbox/radio/select/grid widget and we'll sum the result
         elseif ($field['type'] === 'number') {
