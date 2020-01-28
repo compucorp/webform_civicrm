@@ -768,7 +768,7 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
         }
       }
     }
-    
+
     foreach (wf_crm_location_fields() as $location) {
       if (!empty($contact[$location])) {
         $existing = array();
@@ -1193,8 +1193,22 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       // The api won't let us manually set status without this weird param
       $params['skipStatusCal'] = !empty($params['status_id']);
 
-      if (isset($this->ent['contribution_recur'][1]['id'])) {
-        $params['contribution_recur_id'] = $this->ent['contribution_recur'][1]['id'];
+      /**
+       * If the webform configured with a recur contribution
+       * and auto-renew for the membership set to True, set we
+       * set the membership contribution_recur_id field to the
+       * point the recuring contribution, since for membership
+       * to be considered auto-renew in CiviCRM core they should
+       * have both this field set to the related recuring contribution
+       * and for the related recuring contribution auto_renew field
+       * set to TRUE.
+       */
+      if (isset($this->ent['contribution_recur'][1]['id']) && !empty($params['auto_renew'])) {
+        $contributionRecurId = $this->ent['contribution_recur'][1]['id'];
+
+        $params['contribution_recur_id'] = $contributionRecurId;
+
+        unset($params['auto_renew']);
       }
 
       $result = wf_civicrm_api('membership', 'create', $params);
@@ -1755,7 +1769,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     // Only if #installments = 1, do we process a single transaction/contribution. #installments = 0 (or not set) in CiviCRM Core means open ended commitment;
     $numInstallments = wf_crm_aval($contributionParams, 'installments', NULL, TRUE);
     $frequencyInterval = wf_crm_aval($contributionParams, 'frequency_unit');
-    if ($numInstallments != 1 && !empty($frequencyInterval)) {
+    $isThereMembershipToBeAutoRenewed = $this->isThereMembershipToBeAutoRenewed();
+    if (($numInstallments != 1 || $isThereMembershipToBeAutoRenewed) && !empty($frequencyInterval)) {
+      if ($isThereMembershipToBeAutoRenewed) {
+        $contributionParams['auto_renew'] = 1;
+      }
+
       $result = $this->contributionRecur($contributionParams);
     }
     else {
@@ -1785,16 +1804,16 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     $salesTaxFirstAmount = wf_crm_aval($contributionParams, 'tax_amount', NULL, TRUE);;
     if ($numInstallments > 0) {
       // DRU-2862396 - we must ensure to only present 2 decimals to CiviCRM:
-      $contributionRecurAmount = floor(($contributionParams['total_amount'] / $numInstallments) * 100) / 100;
-      $contributionFirstAmount = $contributionParams['total_amount'] - $contributionRecurAmount * ($numInstallments - 1);
-      $salesTaxFirstAmount = $salesTaxFirstAmount - floor(($salesTaxFirstAmount / $numInstallments) * 100) / 100 * ($numInstallments - 1);
+      $contributionRecurAmount = round(($contributionParams['total_amount'] / $numInstallments), 2, PHP_ROUND_HALF_UP);
+      $contributionFirstAmount = $contributionRecurAmount;
+      $salesTaxFirstAmount = round(($salesTaxFirstAmount / $numInstallments), 2, PHP_ROUND_HALF_UP);
 
       // Calculate the line_items for the first contribution:
       // At this point line_items are set to the full (non-installment) amounts.
       foreach ($this->line_items as $key => $k) {
-        $this->line_items[$key]['unit_price'] = $k['unit_price'] / $numInstallments;
-        $this->line_items[$key]['line_total'] = $k['line_total'] / $numInstallments;
-        $this->line_items[$key]['tax_amount'] = $k['tax_amount'] / $numInstallments;
+        $this->line_items[$key]['unit_price'] = round(($k['unit_price'] / $numInstallments), 2, PHP_ROUND_HALF_UP);
+        $this->line_items[$key]['line_total'] = round(($k['line_total'] / $numInstallments), 2, PHP_ROUND_HALF_UP);
+        $this->line_items[$key]['tax_amount'] = round(($k['tax_amount'] / $numInstallments), 2, PHP_ROUND_HALF_UP);
       }
     }
 
@@ -1810,6 +1829,10 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       'payment_processor_id' =>  $contributionParams['payment_processor_id'],
       'financial_type_id' =>  $contributionParams['financial_type_id'],
     );
+
+    if (!empty($contributionParams['auto_renew'])) {
+      $contributionRecurParams['auto_renew'] = 1;
+    }
 
     if(empty($contributionParams['payment_processor_id'])) {
       $contributionRecurParams['payment_processor_id'] = 'null';
@@ -1874,17 +1897,15 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     $params = $this->contributionParams();
     $params['contribution_status_id'] = 'Pending';
     $params['is_pay_later'] = $this->contributionIsPayLater;
-    //Fix IPN payments marked as paid by cheque
-    if (empty($params['payment_instrument_id'])) {
-      if (!empty($params['payment_processor_id']) && $this->contribution_page['is_monetary']) {
-        $defaultPaymentInstrument = CRM_Core_OptionGroup::values('payment_instrument', FALSE, FALSE, FALSE, 'AND is_default = 1');
-        $params['payment_instrument_id'] = key($defaultPaymentInstrument);
-      }
-    }
 
     $numInstallments = wf_crm_aval($params, 'installments', NULL, TRUE);
     $frequencyInterval = wf_crm_aval($params, 'frequency_unit');
-    if ($numInstallments != 1 && !empty($frequencyInterval) && $this->contributionIsPayLater) {
+    $isThereMembershipToBeAutoRenewed = $this->isThereMembershipToBeAutoRenewed();
+    if (($numInstallments != 1 || $isThereMembershipToBeAutoRenewed) && !empty($frequencyInterval)) {
+      if ($isThereMembershipToBeAutoRenewed) {
+        $params['auto_renew'] = 1;
+      }
+
       $result = $this->contributionRecur($params, 'deferred');
     }
     else {
@@ -1892,6 +1913,22 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     }
 
     $this->ent['contribution'][1]['id'] = $result['id'];
+  }
+
+  /**
+   * Determines if the webform is configured to have
+   * any membership to be autorenwed or not.
+   */
+  private function isThereMembershipToBeAutoRenewed() {
+    $autoRenewMembership = FALSE;
+    foreach ($this->data['membership'] as $contactMemberships) {
+      foreach($contactMemberships['membership'] as $membership) {
+        if (!empty($membership['auto_renew'])) {
+          $autoRenewMembership = TRUE;
+        }
+      }
+    }
+    return $autoRenewMembership;
   }
 
   /**
@@ -2078,6 +2115,10 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
         'is_test' => 1,
         'domain_id' => $domain,
       ));
+    }
+
+    if (empty($params['payment_instrument_id'])) {
+      $params['payment_instrument_id'] = $this->getPaymentInstrument($params['payment_processor_id']);
     }
 
     // doPayment requries payment_processor and payment_processor_mode fields.
@@ -2361,7 +2402,7 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
           $val = $sum;
         }
         else {
-          $val = isset($val[0]) ? $val[0] : '';
+          $val = is_array($val) ? reset($val) : $val;
         }
         if ($component['type'] == 'autocomplete' && is_string($val) && strlen($val)) {
           $options = wf_crm_field_options($component, '', $this->data);
@@ -2604,5 +2645,10 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     }
 
     return $values;
+  }
+
+  private function getPaymentInstrument($paymentProcessorId) {
+    $processor = \Civi\Payment\System::singleton()->getById($paymentProcessorId);
+    return $processor->getPaymentInstrumentID();
   }
 }
