@@ -1,5 +1,5 @@
 name = Webform CiviCRM Integration
-description = A powerful, flexible, user-friendly form builder for CiviCRM.
+description = This is a patched version of this module, based on version 7.x-4.28.
 core = 7.x
 version = 7.x-2.0
 package = CiviCRM
