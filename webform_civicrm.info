@@ -1,9 +1,9 @@
 name = Webform CiviCRM Integration
 description = This is a patched version of this module, based on webform civicrm version 7.x-4.28
 core = 7.x
-version = 7.x-4.28-patch2
+version = 7.x-4.28
 package = CiviCRM
 dependencies[] = civicrm (>=4.4)
 dependencies[] = webform (>=4.12)
 dependencies[] = options_element
-; patch 3
+; patch 4
