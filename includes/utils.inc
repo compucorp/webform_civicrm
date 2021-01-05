@@ -1313,6 +1313,14 @@ function wf_crm_get_fields($var = 'fields') {
     $dao = CRM_Core_DAO::executeQuery($sql);
     while ($dao->fetch()) {
       if (isset($custom_types[$dao->html_type])) {
+        // CiviCRM changed the way it define multi-select custom fields where the HTML type will be just "select"
+        // and a new field called `serialize` will be set to 1 (or 0 if it is just a single select field).
+        // newer webform version is updated to handle that, so here I just update our forked patch to handle that as well
+        // until we update our fork to newer webform version.
+        if (!empty($dao->serialize)) {
+          $dao->html_type = 'Multi-Select';
+        }
+
         $set = 'cg' . $dao->custom_group_id;
         // Place these custom fields directly into their entity
         if (wf_crm_aval($sets, "$dao->entity_type:custom_fields") == 'combined') {
