@@ -6,4 +6,4 @@ package = CiviCRM
 dependencies[] = civicrm (>=4.4)
 dependencies[] = webform (>=4.12)
 dependencies[] = options_element
-; patch 4
+; patch 5
