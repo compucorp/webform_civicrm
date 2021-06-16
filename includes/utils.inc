@@ -54,14 +54,12 @@ function wf_crm_field_options($field, $context, $data) {
     elseif ($name == 'privacy') {
       $ret = wf_crm_get_privacy_options();
     }
-    elseif ($table === 'other') {
-      if ($field['table'] === 'tag') {
-        $split = explode('_', $name);
-        $ret = CRM_Core_BAO_Tag::getTags("civicrm_{$ent}", $ret, wf_crm_aval($split, 1), '- ');
-      }
-      elseif ($field['table'] === 'group') {
-        $ret = wf_crm_apivalues('group', 'get', array('is_hidden' => 0), 'title');
-      }
+    elseif (isset($field['table']) && $field['table'] === 'tag') {
+      $split = explode('_', $name);
+      $ret = CRM_Core_BAO_Tag::getTags("civicrm_{$ent}", $ret, wf_crm_aval($split, 1), '- ');
+    }
+    elseif (isset($field['table']) && $field['table'] === 'group') {
+      $ret = wf_crm_apivalues('group', 'get', array('is_hidden' => 0), 'title');
     }
     elseif ($name === 'survey_id') {
       $ret = wf_crm_get_surveys(wf_crm_aval($data, "activity:$c:activity:1", array()));
@@ -771,16 +769,6 @@ function wf_crm_get_fields($var = 'fields') {
       'table' => 'group',
       'expose_list' => TRUE,
     );
-    $tagsets = array('' => t('Tag(s)')) + CRM_Core_BAO_Tag::getTagSet('civicrm_contact');
-    foreach ($tagsets as $pid => $name) {
-      $fields['other_tag' . ($pid ? "_$pid" : '')] = array(
-        'name' => $name,
-        'type' => 'select',
-        'extra' => array('multiple' => 1, 'civicrm_live_options' => 1),
-        'table' => 'tag',
-        'expose_list' => TRUE,
-      );
-    }
     $fields['activity_activity_type_id'] = array(
       'name' => t('Activity # Type'),
       'type' => 'select',
@@ -852,7 +840,9 @@ function wf_crm_get_fields($var = 'fields') {
         'integer' => 1,
       ),
     );
+    $tag_entities = array('other', 'activity');
     if (isset($sets['case'])) {
+      $tag_entities[] = 'case';
       $case_info = new CRM_Case_XMLProcessor_Process();
       $fields['case_case_type_id'] = array(
         'name' => t('Case # Type'),
@@ -931,6 +921,29 @@ function wf_crm_get_fields($var = 'fields') {
             }
           }
         }
+      }
+    }
+    $all_tagsets = wf_crm_apivalues('tag', 'get', [
+      'return' => ['id', 'name', 'used_for'],
+      'is_tagset' => 1,
+      'parent_id' => ['IS NULL' => 1],
+    ]);
+    foreach ($tag_entities as $entity) {
+      $table_name = $entity == 'other' ? 'civicrm_contact' : "civicrm_$entity";
+      $tagsets = ['' => t('Tag(s)')];
+      foreach ($all_tagsets as $set) {
+        if (strpos($set['used_for'], $table_name) !== FALSE) {
+          $tagsets[$set['id']] = $set['name'];
+        }
+      }
+      foreach ($tagsets as $pid => $name) {
+        $fields[$entity . '_tag' . ($pid ? "_$pid" : '')] = [
+          'name' => $name,
+          'type' => 'select',
+          'extra' => ['multiple' => 1, 'civicrm_live_options' => 1],
+          'table' => 'tag',
+          'expose_list' => TRUE,
+        ];
       }
     }
     $fields['relationship_relationship_type_id'] = array(
