@@ -197,6 +197,8 @@ var wfCivi = (function ($, D) {
   }
 
   function fillValues(data, nid) {
+    var fid_options_set = false;
+
     $.each(data, function() {
       var fid = this.fid,
         val = this.val;
@@ -219,6 +221,16 @@ var wfCivi = (function ($, D) {
           else if ($el.is('[type=hidden]')) {
             $el.siblings('.token-input-list').find('p').text(this.display);
           }
+
+          if (fid.search('contact_existing') !== -1) {
+            if (!fid_options_set) {
+              fid_options_set = true;
+              $el.empty().append('<option selected="selected" value>- Choose existing -</option>');
+            }
+
+            $el.append('<option  value="' + val +'">' + this.display + '</option>');
+          }
+
           $el.val(val).trigger('change', 'webform_civicrm:autofill');
         }
       }

@@ -142,13 +142,15 @@ class wf_crm_webform_ajax extends wf_crm_webform_base {
               $related_component['extra']['allow_url_autofill'] = FALSE;
               unset($this->ent['contact'][$i]);
               $this->findContact($related_component);
-              $related_cid = wf_crm_aval($this->ent, "contact:$i:id");
-              if ($related_cid && $related_cid != $old_related_cid) {
-                $data[] = [
-                  'fid' => $fid,
-                  'val' => $related_cid,
-                  'display' => wf_crm_contact_access($related_component,  wf_crm_search_filters($this->node, $related_component), $related_cid),
-                ];
+              $related_cids = wf_crm_aval($this->ent, "contact:$i:id");
+              if ($related_cids && $related_cids[0] != $old_related_cid) {
+                foreach ($related_cids as $related_id) {
+                  $data[] = [
+                    'fid' => $fid,
+                    'val' => $related_id,
+                    'display' => wf_crm_contact_access($related_component,  wf_crm_search_filters($this->node, $related_component), $related_id),
+                  ];
+                }
               }
             }
           }

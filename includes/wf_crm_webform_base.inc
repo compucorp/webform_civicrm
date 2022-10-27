@@ -304,8 +304,7 @@ abstract class wf_crm_webform_base {
         }
         // Check filters except for 'auto' which already applied them
         if ($component['extra']['default'] == 'auto' || wf_crm_contact_access($component, $filters, $cid) !== FALSE) {
-          $this->ent['contact'][$c]['id'] = $cid;
-          break;
+          $this->ent['contact'][$c]['id'][] = $cid;
         }
       }
     }
