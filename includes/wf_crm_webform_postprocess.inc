@@ -245,7 +245,7 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     if (empty($this->submission->is_draft)
       && !empty($this->ent['contribution'][1]['id'])
       && !empty($this->contribution_page['is_email_receipt'])
-      && (!$this->contributionIsIncomplete || $this->contributionIsPayLater)
+      && $this->contributionIsPayLater
     ) {
       $this->sendReceipt();
     }
