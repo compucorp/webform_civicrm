@@ -87,13 +87,43 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
 
     // Process live contribution. If the transaction is unsuccessful it will trigger a form validation error.
     if ($this->contribution_page) {
+      watchdog(
+        'webform',
+        'Additional logs: Webform processing is started for a contribution page with form %form and formState %formState and rawValues %rawValues and crmValues %crmValues and ent %ent',
+        ['%form' => json_encode($form), '%formState' => json_encode($form_state), '%rawValues' => json_encode($this->rawValues), '%crmValues' => json_encode($this->crmValues), '%ent' => json_encode($this->ent)],
+        WATCHDOG_INFO
+      );
       // Ensure contribution js is still loaded if the form has to refresh
       $this->addPaymentJs();
       $this->loadMultiPageData();
       if ($this->tallyLineItems()) {
+        watchdog(
+          'webform',
+          'Additional logs: Line items array created for saving later %lineItems',
+          ['%lineItems' => json_encode($this->line_items)],
+          WATCHDOG_INFO
+        );
         if ($this->isLivePaymentProcessor() && $this->isPaymentPage() && !form_get_errors()) {
+          watchdog(
+            'webform',
+            'Additional logs: payment processor is live and payment page is active',
+            [],
+            WATCHDOG_INFO
+          );
           if ($this->validateBillingFields()) {
+            watchdog(
+              'webform',
+              'Additional logs: billing fields are valid',
+              [],
+              WATCHDOG_INFO
+            );
             if ($this->createBillingContact()) {
+              watchdog(
+                'webform',
+                'Additional logs: billing contact created',
+                [],
+                WATCHDOG_INFO
+              );
               $this->createLiveContributionContact();
               $this->submitLivePayment();
             }
@@ -217,6 +247,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
    */
   public function postSave($submission) {
     $this->submission = $submission;
+    watchdog(
+      'webform',
+      'Additional logs: post submission started for contribution %id',
+      ['%id' => $this->ent['contribution'][1]['id']],
+      WATCHDOG_INFO
+    );
     if (empty($this->submission->is_draft)) {
       // Save cases
       if (!empty($this->data['case']['number_of_case'])) {
@@ -233,6 +269,13 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       // Save contribution line-items
       if (!empty($this->ent['contribution'][1]['id'])) {
         $this->processContribution();
+      } else {
+        watchdog(
+          'webform',
+          'Additional logs: creating line items failed as $this->ent["contribution"][1]["id"] is empty %contributions',
+          ['%contributions' => $this->ent['contribution']],
+          WATCHDOG_INFO
+        );
       }
     }
     // Write record; we do this when creating, updating, or saving a draft of a webform submission.
@@ -1618,7 +1661,7 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     // Contribution
     $fid = 'civicrm_1_contribution_1_contribution_total_amount';
     if (isset($this->enabled[$fid]) || $this->getData($fid) > 0) {
-      $this->line_items[] = [
+      $contributionLineItem = [
         'qty' => 1,
         'unit_price' => $this->getData($fid),
         'financial_type_id' => $this->contribution_page['financial_type_id'],
@@ -1626,10 +1669,23 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
         'element' => 'civicrm_1_contribution_1',
         'entity_table' => 'civicrm_contribution',
       ];
+      $this->line_items[] = $contributionLineItem;
+      watchdog(
+        'webform',
+        'Additional logs: contribution line item %lineItem',
+        ['%lineItem' => json_encode($contributionLineItem)],
+        WATCHDOG_INFO
+      );
     }
     // LineItems
     $fid = "civicrm_1_lineitem_1_contribution_line_total";
     if (isset($this->enabled[$fid])) {
+      watchdog(
+        'webform',
+        'Additional logs: form line items %lineItem',
+        ['%lineItem' => json_encode($this->data['lineitem'][1]['contribution'])],
+        WATCHDOG_INFO
+      );
       foreach ($this->data['lineitem'][1]['contribution'] as $n => $lineitem) {
         $fid = "civicrm_1_lineitem_{$n}_contribution_line_total";
         if ($this->getData($fid) != 0) {
@@ -1645,6 +1701,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       }
     }
     // Membership
+    watchdog(
+      'webform',
+      'Additional logs: membership line items %lineItem',
+      ['%lineItem' => json_encode(wf_crm_aval($this->data, 'membership', []))],
+      WATCHDOG_INFO
+    );
     foreach (wf_crm_aval($this->data, 'membership', []) as $c => $memberships) {
       if (isset($this->existing_contacts[$c]) && !empty($memberships['number_of_membership'])) {
         foreach ($memberships['membership'] as $n => $item) {
@@ -1707,6 +1769,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
         $this->totalContribution += $item['line_total'];
       }
     }
+    watchdog(
+      'webform',
+      'Additional logs: contribution line item total is %lineItemTotal',
+      ['%lineItemTotal' => $this->totalContribution],
+      WATCHDOG_INFO
+    );
     return round($this->totalContribution, 2);
   }
 
@@ -1755,6 +1823,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     foreach ($_POST as $field => $value) {
       if (empty($_POST[$field]) && isset($fields[$field]) && $fields[$field]['is_required'] !== FALSE) {
         form_set_error($field, t('!name field is required.', ['!name' => check_plain($fields[$field]['title'])]));
+        watchdog(
+          'webform',
+          'Additional logs: billing fields validation failed for field %field',
+          ['%field' => json_encode($field)],
+          WATCHDOG_INFO
+        );
         $valid = FALSE;
       }
       if (!empty($_POST[$field]) && array_key_exists($field, $fields)) {
@@ -1771,6 +1845,14 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
 
     // Validate billing details
     CRM_Core_Payment_Form::validatePaymentInstrument(wf_crm_aval($this->data, 'contribution:1:contribution:1:payment_processor_id'), $params, $card_errors, NULL);
+    if (!empty($card_errors)) {
+      watchdog(
+        'webform',
+        'Additional logs: billing fields validation failed with these card errors %cardErrors',
+        ['%cardErrors' => json_encode($card_errors)],
+        WATCHDOG_INFO
+      );
+    }
     foreach ($card_errors as $field => $msg) {
       form_set_error($field, $msg);
       $valid = FALSE;
@@ -1789,6 +1871,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     }
     if (empty($params['email']) AND !$processor->supports('NoEmailProvided')) {
       form_set_error('billing_email', ts('An email address is required to complete this transaction.'));
+      watchdog(
+        'webform',
+        'Additional logs: billing fields validation failed due to missing email',
+        [],
+        WATCHDOG_INFO
+      );
       $valid = FALSE;
     }
     if ($valid) {
@@ -1817,6 +1905,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
         'last_name' => $this->billing_params['last_name'],
       ];
       $cid = $this->findDuplicateContact($contact);
+      watchdog(
+        'webform',
+        'Additional logs: billing contact found',
+        [],
+        WATCHDOG_INFO
+      );
     }
     $address = [
       'street_address' => $this->billing_params['street_address'] ?? '',
@@ -1831,6 +1925,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       'location_type_id' => 'Billing',
     ];
     if (!$cid) {
+      watchdog(
+        'webform',
+        'Additional logs: billing contact needs to be created',
+        [],
+        WATCHDOG_INFO
+      );
       $cid = $this->createContact($contact);
     }
     else {
@@ -1860,7 +1960,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
    */
   private function submitLivePayment() {
     $contributionParams = $this->contributionParams(TRUE);
-
+    watchdog(
+      'webform',
+      'Additional logs: contribution params %contributionParams',
+      ['%contributionParams' => json_encode($contributionParams)],
+      WATCHDOG_INFO
+    );
     // Only if #installments = 1, do we process a single transaction/contribution. #installments = 0 (or not set) in CiviCRM Core means open ended commitment;
     $numInstallments = wf_crm_aval($contributionParams, 'installments', NULL, TRUE);
     $frequencyInterval = wf_crm_aval($contributionParams, 'frequency_unit');
@@ -1869,23 +1974,52 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       if ($isThereMembershipToBeAutoRenewed) {
         $contributionParams['auto_renew'] = 1;
       }
-
+      watchdog(
+        'webform',
+        'Additional logs: recurring contribution will be created',
+        [],
+        WATCHDOG_INFO
+      );
       $result = $this->contributionRecur($contributionParams);
     }
     else {
+      watchdog(
+        'webform',
+        'Additional logs: single contribution will be created',
+        [],
+        WATCHDOG_INFO
+      );
       $result = wf_civicrm_api('contribution', 'transact', $contributionParams);
     }
 
     if (empty($result['id'])) {
       if (!empty($result['error_message'])) {
         form_set_error('contribution', $result['error_message']);
+        watchdog(
+          'webform',
+          'Additional logs: contribution creation failed with message %message',
+          ['%message' => $result['error_message']],
+          WATCHDOG_INFO
+        );
       }
       else {
         form_set_error('contribution', t('Transaction failed. Please verify all billing fields are correct.'));
+        watchdog(
+          'webform',
+          'Additional logs: contribution creation failed with result %result',
+          ['%result' => json_encode($result)],
+          WATCHDOG_INFO
+        );
       }
       return;
     }
     $this->ent['contribution'][1]['id'] = $result['id'];
+    watchdog(
+      'webform',
+      'Additional logs: contribution created with id %id',
+      ['%id' => $result['id']],
+      WATCHDOG_INFO
+    );
   }
 
   /**
@@ -2234,6 +2368,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     $id = $this->ent['contribution'][1]['id'];
     // Save soft credits
     if (!empty($contribution['soft'])) {
+      watchdog(
+        'webform',
+        'Additional logs: saving soft credits for contribution %id.',
+        ['%id' => $id],
+        WATCHDOG_INFO
+      );
       // Get total amount from total amount after line item calculation
       $amount = $this->totalContribution;
 
@@ -2257,6 +2397,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     // Save honoree
     // FIXME: these api params were deprecated in 4.5, should be switched to use soft-credits when we drop support for 4.4
     if (!empty($contribution['honor_contact_id']) && !empty($contribution['honor_type_id'])) {
+      watchdog(
+        'webform',
+        'Additional logs: saving honoree for contribution %id.',
+        ['%id' => $id],
+        WATCHDOG_INFO
+      );
       wf_civicrm_api('contribution', 'create', [
         'id' => $id,
         'total_amount' => $contribution['total_amount'],
@@ -2272,6 +2418,12 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     foreach ($this->line_items as &$item) {
       $lineItemNumber++;
       if (empty($item['line_total'])) {
+        watchdog(
+          'webform',
+          'Additional logs: line_total is empty for contribution %id and line item %item.',
+          ['%id' => $id, '%item' => json_encode($item)],
+          WATCHDOG_INFO
+        );
         continue;
       }
       if (empty($item['entity_id'])) {
@@ -2342,15 +2494,32 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       // Save the line_item
       $line_result = wf_civicrm_api('line_item', 'create', $item);
       $item['id'] = $line_result['id'];
-
+      watchdog(
+        'webform',
+        'Additional logs: line item saved for contribution %id with params %item and line item saving result is %result.',
+        ['%id' => $id, '%item' => json_encode($item), '%result' => json_encode($line_result)],
+        WATCHDOG_INFO
+      );
       $lineItemRecord = json_decode(json_encode($item), FALSE);
       // Add financial_item and entity_financial_trxn
       // hence that we call CRM_Financial_BAO_FinancialItem::add() twice,
       // once to create the line item 'total amount' financial_item record and the 2nd
       // one to create the line item 'tax amount' financial_item  record.
-      CRM_Financial_BAO_FinancialItem::add($lineItemRecord, $contributionResult);
+      $financialItem = CRM_Financial_BAO_FinancialItem::add($lineItemRecord, $contributionResult);
+      watchdog(
+        'webform',
+        'Additional logs: financial item created for contribution %id line item id %item with result of %result.',
+        ['%id' => $id, '%item' => $line_result['id'], '%result' => json_encode($financialItem)],
+        WATCHDOG_INFO
+      );
       if (!empty($lineItemRecord->tax_amount)) {
-        CRM_Financial_BAO_FinancialItem::add($lineItemRecord, $contributionResult, TRUE);
+        $taxFinancialItem = CRM_Financial_BAO_FinancialItem::add($lineItemRecord, $contributionResult, TRUE);
+        watchdog(
+          'webform',
+          'Additional logs: tax financial item created for contribution %id line item id %item with result of %result.',
+          ['%id' => $id, '%item' => $line_result['id'], '%result' => json_encode($taxFinancialItem)],
+          WATCHDOG_INFO
+        );
       }
 
       // Create participant/membership payment records
