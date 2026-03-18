@@ -1944,11 +1944,8 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     $salesTaxFirstAmount = wf_crm_aval($contributionParams, 'tax_amount', NULL, TRUE);
     $nondeductibleFirstAmount = wf_crm_aval($contributionParams, 'non_deductible_amount', NULL, TRUE);
     if ($numInstallments > 0) {
-      // DRU-2862396 - we must ensure to only present 2 decimals to CiviCRM:
-      $contributionRecurAmount = round(($contributionParams['total_amount'] / $numInstallments), 2, PHP_ROUND_HALF_UP);
-      $contributionFirstAmount = $contributionRecurAmount;
-      $salesTaxFirstAmount = round(($salesTaxFirstAmount / $numInstallments), 2, PHP_ROUND_HALF_UP);
-      $nondeductibleFirstAmount = round(($nondeductibleFirstAmount / $numInstallments), 2, PHP_ROUND_HALF_UP);
+      $contributionRecurAmount = 0;
+      $salesTaxFirstAmount = 0;
 
       // Calculate the line_items for the first contribution:
       // At this point line_items are set to the full (non-installment) amounts.
@@ -1956,7 +1953,13 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
         $this->line_items[$key]['unit_price'] = round(($k['unit_price'] / $numInstallments), 2, PHP_ROUND_HALF_UP);
         $this->line_items[$key]['line_total'] = round(($k['line_total'] / $numInstallments), 2, PHP_ROUND_HALF_UP);
         $this->line_items[$key]['tax_amount'] = round(($k['tax_amount'] / $numInstallments), 2, PHP_ROUND_HALF_UP);
+
+        $contributionRecurAmount += $this->line_items[$key]['line_total'] + $this->line_items[$key]['tax_amount'];
+        $salesTaxFirstAmount += $this->line_items[$key]['tax_amount'];
       }
+
+      $contributionFirstAmount = $contributionRecurAmount;
+      $nondeductibleFirstAmount = $contributionRecurAmount;
     }
 
     // Create Params for Creating the Recurring Contribution Series and Create it
