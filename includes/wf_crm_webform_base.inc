@@ -752,14 +752,12 @@ abstract class wf_crm_webform_base {
       $file_uri = CRM_Utils_File::makeFileName($file->filename ?? '');
       $path = file_unmanaged_copy($file->uri, $config->customFileUploadDir . $file_uri);
       if ($path) {
-        $result = civicrm_api4('File', 'create', [
-          'values' => [
-            'uri' => $file_uri,
-            'mime_type' => $file->filemime,
-          ],
-          'checkPermissions' => FALSE,
+        $fileDAO = CRM_Core_BAO_File::create([
+          'uri' => $file_uri,
+          'mime_type' => $file->filemime,
         ]);
-        return wf_crm_aval($result->first(), 'id');
+
+        return $fileDAO->id;
       }
     }
     return NULL;
