@@ -638,10 +638,11 @@ class wf_crm_webform_preprocess extends wf_crm_webform_base {
 
       if (!is_null($itemTaxRate)) {
         // Change the line item label to display the tax rate it contains
-        $taxSettings = wf_crm_get_civi_setting('contribution_invoice_settings');
+        $taxDisplaySetting = wf_crm_get_civi_setting('tax_display_settings');
+        $taxTerm = wf_crm_get_civi_setting('tax_term');
 
-        if (($taxSettings['tax_display_settings'] != 'Do_not_show') && ($itemTaxRate !== 0)) {
-          $item['label'] .= ' (' . t('includes !rate @tax', ['!rate' => (float)$itemTaxRate . '%', '@tax' => $taxSettings['tax_term']]) . ')';
+        if (($taxDisplaySetting != 'Do_not_show') && ($itemTaxRate !== 0)) {
+          $item['label'] .= ' (' . t('includes !rate @tax', ['!rate' => (float)$itemTaxRate . '%', '@tax' => $taxTerm]) . ')';
         }
 
         // Add calculation for financial type that contains tax
