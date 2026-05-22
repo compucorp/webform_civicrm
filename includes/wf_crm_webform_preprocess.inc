@@ -308,9 +308,33 @@ class wf_crm_webform_preprocess extends wf_crm_webform_base {
    */
   private function loadParticipants($c) {
     $status_types = wf_crm_apivalues('participant_status_type', 'get');
+    $event_ids = array_keys($this->events);
+    // DTAB-591: when allow_url_load is on and the URL pins specific events
+    // for this contact, narrow the prefill lookup to just those events.
+    // Without this, $this->events is populated from every type-matching
+    // event in the system (via the hidden participant_event_id field's
+    // live options), and any sibling participation of the same contact in
+    // any of those events whose status_id is one of the form's exposed
+    // dropdown values overwrites the form defaults with its own values.
+    if (!empty($this->data['reg_options']['allow_url_load'])) {
+      $url_event_ids = $this->getUrlPinnedEventIds($c);
+      if ($url_event_ids) {
+        $narrowed = array_values(array_intersect($event_ids, $url_event_ids));
+        // Only apply the narrowing if the intersection is non-empty. If the
+        // URL pins an event that isn't on this form, fall back to the wide
+        // query so we preserve the original behaviour rather than silently
+        // returning no prefill data.
+        if ($narrowed) {
+          $event_ids = $narrowed;
+        }
+      }
+    }
+    if (!$event_ids) {
+      return;
+    }
     $participants = wf_crm_apivalues('participant', 'get', [
       'contact_id' => $this->ent['contact'][$c]['id'],
-      'event_id' => ['IN' => array_keys($this->events)],
+      'event_id' => ['IN' => $event_ids],
     ]);
     foreach ($participants as $row) {
       $par = [];
@@ -342,6 +366,47 @@ class wf_crm_webform_preprocess extends wf_crm_webform_base {
         }
       }
     }
+  }
+
+  /**
+   * Collect event ids the URL has pinned for a given contact.
+   *
+   * Accepts both URL conventions used by loadURLEvents(): event{n} (used
+   * when participant_reg_type is "all") and c{c}event{n} (used when
+   * participant_reg_type is "separate"). For contact 1 we also accept the
+   * "all" convention even on separate forms so administrative URLs that
+   * only set event1 still narrow the prefill correctly. See DTAB-591.
+   *
+   * @param int $c
+   *   Contact number on the form.
+   *
+   * @return int[]
+   *   Numeric event ids pinned by the URL, deduplicated. Empty if none.
+   */
+  private function getUrlPinnedEventIds($c) {
+    $ids = [];
+    foreach ($_GET as $key => $value) {
+      if ($value === '' || $value === NULL) {
+        continue;
+      }
+      if (preg_match('/^event(\d+)$/', $key) && (int) $c === 1) {
+        foreach (explode(',', (string) $value) as $raw) {
+          $id = (int) $raw;
+          if ($id > 0) {
+            $ids[] = $id;
+          }
+        }
+      }
+      elseif (preg_match('/^c(\d+)event(\d+)$/', $key, $m) && (int) $m[1] === (int) $c) {
+        foreach (explode(',', (string) $value) as $raw) {
+          $id = (int) $raw;
+          if ($id > 0) {
+            $ids[] = $id;
+          }
+        }
+      }
+    }
+    return array_values(array_unique($ids));
   }
 
   /**
