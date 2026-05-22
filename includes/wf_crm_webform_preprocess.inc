@@ -389,20 +389,15 @@ class wf_crm_webform_preprocess extends wf_crm_webform_base {
       if ($value === '' || $value === NULL) {
         continue;
       }
-      if (preg_match('/^event(\d+)$/', $key) && (int) $c === 1) {
-        foreach (explode(',', (string) $value) as $raw) {
-          $id = (int) $raw;
-          if ($id > 0) {
-            $ids[] = $id;
-          }
-        }
+      $matchesEventN = ((int) $c === 1 && preg_match('/^event\d+$/', $key));
+      $matchesCnEventN = (preg_match('/^c(\d+)event\d+$/', $key, $m) && (int) $m[1] === (int) $c);
+      if (!$matchesEventN && !$matchesCnEventN) {
+        continue;
       }
-      elseif (preg_match('/^c(\d+)event(\d+)$/', $key, $m) && (int) $m[1] === (int) $c) {
-        foreach (explode(',', (string) $value) as $raw) {
-          $id = (int) $raw;
-          if ($id > 0) {
-            $ids[] = $id;
-          }
+      foreach (explode(',', (string) $value) as $raw) {
+        $id = (int) $raw;
+        if ($id > 0) {
+          $ids[] = $id;
         }
       }
     }
