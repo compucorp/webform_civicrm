@@ -394,7 +394,9 @@ class wf_crm_webform_preprocess extends wf_crm_webform_base {
       if (!$matchesEventN && !$matchesCnEventN) {
         continue;
       }
-      foreach (explode(',', (string) $value) as $raw) {
+      // $_GET parameters can be arrays (e.g. ?event1[]=123); cast safely.
+      $raw_values = is_array($value) ? $value : explode(',', (string) $value);
+      foreach ($raw_values as $raw) {
         $id = (int) $raw;
         if ($id > 0) {
           $ids[] = $id;
