@@ -41,6 +41,7 @@ class wf_crm_webform_preprocess extends wf_crm_webform_base {
     $this->addResources();
     // Add validation handler
     $this->form['#validate'][] = 'wf_crm_validate';
+    $this->showErrorMessage();
     // If this form is already in-process, IDs will be stored
     if (!empty($this->form_state['civicrm'])) {
       $this->ent = $this->form_state['civicrm']['ent'];
@@ -936,6 +937,15 @@ class wf_crm_webform_preprocess extends wf_crm_webform_base {
       $t = "[$t]";
     }
     return str_ireplace($tokens, $values, $str);
+  }
+
+  /**
+   * Displays the error message if any
+   */
+  private function showErrorMessage(): void {
+    if (!empty($_GET['errorMessage'])) {
+      $this->setMessage($_GET['errorMessage'], 'error');
+    }
   }
 
 }
