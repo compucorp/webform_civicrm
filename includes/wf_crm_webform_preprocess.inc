@@ -789,6 +789,12 @@ class wf_crm_webform_preprocess extends wf_crm_webform_base {
                 'status_id' => ['IN' => (array)$this->data['activity'][$n]['existing_activity_status']],
                 'is_deleted' => '0',
                 'is_current_revision' => '1',
+                // Only the id is used below. Without an explicit
+                // return the api selects every column plus every
+                // activity custom field, so it reads the off-page
+                // details TEXT and LEFT JOINs every custom group
+                // table. On a large civicrm_activity that is minutes.
+                'return' => ['id'],
                 'options' => ['limit' => 1],
               ];
               $params['activity_type_id'] = $this->data['activity'][$n]['activity'][1]['activity_type_id'];
