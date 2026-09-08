@@ -1163,9 +1163,8 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     }
     $existing = $this->findMemberships($cid);
     foreach (wf_crm_aval($this->data, "membership:$c:membership", []) as $n => $params) {
-      $membershipStatus = "";
-      $membershipEndDate = "";
-      $is_active = FALSE;
+      // The existing membership being renewed, if any.
+      $existingMembership = [];
 
       if (empty($params['membership_type_id'])) {
         continue;
@@ -1183,11 +1182,9 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
           $existing_type = $types[$mem['membership_type_id']];
           if ($type['domain_id'] == $existing_type['domain_id'] && $type['member_of_contact_id'] == $existing_type['member_of_contact_id']) {
             $params['id'] = $mem['id'];
+            $existingMembership = $mem;
             // If we have an exact match, look no further
             if ($mem['membership_type_id'] == $params['membership_type_id']) {
-              $is_active = $mem['is_active'];
-              $membershipStatus = $mem['status'];
-              $membershipEndDate = $mem['end_date'];
               break;
             }
           }
@@ -1204,13 +1201,39 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       // Automatic status
       if (empty($params['status_id'])) {
         unset($params['status_id']);
-        // Pending payment status
-        if ($this->contributionIsIncomplete && $this->getMembershipTypeField($params['membership_type_id'], 'minimum_fee')) {
-          if ($is_active == FALSE) {
+        // Payment for this submission has not completed yet.
+        if ($this->membershipPaymentIsIncomplete() && $this->getMembershipTypeField($params['membership_type_id'], 'minimum_fee')) {
+          if (empty($existingMembership)) {
+            // New membership: leave it Pending until the payment completes.
             $params['status_id'] = 'Pending';
-          } else {
-            $params['status_id'] = $membershipStatus;
-            $params['end_date'] = $membershipEndDate;
+          }
+          elseif (!empty($this->ent['contribution_recur'][1]['id'])) {
+            // Payment plan renewal: keep the long-standing behaviour, which
+            // membershipextras relies on when it blocks end-date extension as
+            // each instalment is paid. An active membership keeps its status and
+            // end date; an expired one is renewed into Pending.
+            if ($existingMembership['is_active']) {
+              $params['status_id'] = $existingMembership['status_id'];
+              $params['end_date'] = $existingMembership['end_date'];
+            }
+            else {
+              $params['status_id'] = 'Pending';
+            }
+          }
+          else {
+            // One-off renewal: do not touch the membership until the payment
+            // completes. Passing the current status and dates back explicitly
+            // stops the API from recalculating them, so repeated or abandoned
+            // submissions change nothing. When the contribution completes, core
+            // grants exactly one term (CRM_Contribute_BAO_Contribution::
+            // updateMembershipBasedOnCompletionOfContribution).
+            $params['status_id'] = $existingMembership['status_id'];
+            // Pass every date explicitly. An empty one (a lifetime membership
+            // has no end date) is sent as the API's 'null' marker, otherwise
+            // the API would fill it from its renewal calculation.
+            foreach (['join_date', 'start_date', 'end_date'] as $dateField) {
+              $params[$dateField] = empty($existingMembership[$dateField]) ? 'null' : $existingMembership[$dateField];
+            }
           }
         }
       }
@@ -1275,6 +1298,37 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
         }
       }
     }
+  }
+
+  /**
+   * Checks whether the payment for this submission is still incomplete.
+   *
+   * Falls back to the status of the contribution record itself, since
+   * $contributionIsIncomplete is only set when this submission created the
+   * contribution.
+   *
+   * @return bool
+   */
+  private function membershipPaymentIsIncomplete() {
+    if ($this->contributionIsIncomplete) {
+      return TRUE;
+    }
+    $contributionId = wf_crm_aval($this->ent, 'contribution:1:id');
+    if (!$contributionId) {
+      return FALSE;
+    }
+    // A submission has one contribution; look its status up once.
+    static $cache = [];
+    if (!isset($cache[$contributionId])) {
+      $cache[$contributionId] = FALSE;
+      // wf_crm_apivalues() reduces each result to the requested field, keyed by id.
+      $status = wf_crm_aval(wf_crm_apivalues('contribution', 'get', $contributionId, 'contribution_status_id'), $contributionId);
+      if ($status !== NULL) {
+        $completed = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Completed');
+        $cache[$contributionId] = (int) $status !== (int) $completed;
+      }
+    }
+    return $cache[$contributionId];
   }
 
   /**
