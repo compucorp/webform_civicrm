@@ -243,9 +243,27 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
     $record = $this->formatSubmission();
     drupal_write_record('webform_civicrm_submissions', $record, $this->update);
 
-    // Calling an IPN payment processor will result in a redirect so this happens after everything else
+    // An IPN payment processor usually redirects away, which would stop Webform
+    // from ever reaching its own webform_submission_send_mail() call in
+    // webform_client_form_submit(). So send the emails here first, then hand
+    // off to the processor.
+    //
+    // Some processors (e.g. Stripe without a 3DS challenge) complete the
+    // payment and return without redirecting. Webform then resumes and sends
+    // the same emails a second time. Flag the submission so that
+    // webform_civicrm_mail_alter() drops that second copy.
     if (empty($this->submission->is_draft) && !empty($this->ent['contribution'][1]['id']) && $this->contributionIsIncomplete && !$this->contributionIsPayLater) {
-      webform_submission_send_mail($this->node, $this->submission);
+      // Reload the submission the same way Webform does before its own send,
+      // so hook_webform_submission_load() has run. Our implementation attaches
+      // the CiviCRM ids that the [submission:contact-*], activity and case
+      // tokens read; the in-memory $this->submission does not have them.
+      drupal_static_reset('webform_get_submission');
+      $submission = webform_get_submission($this->node->webform['nid'], $this->submission->sid);
+      $count = webform_submission_send_mail($this->node, $submission ?: $this->submission);
+      if ($count) {
+        $sent = &drupal_static('webform_civicrm_mail_sent', []);
+        $sent[$this->submission->sid] = TRUE;
+      }
       $this->submitIPNPayment();
     }
     // Send receipt
