@@ -450,6 +450,35 @@ function webform_civicrm_civicrm_post($op, $name, $id, $dao) {
 }
 
 /**
+ * Implements hook_mail_alter().
+ *
+ * When a submission creates a contribution for an online payment processor,
+ * wf_crm_webform_postprocess::postSave() sends the webform emails itself before
+ * handing off to the processor, because a redirecting processor ends the
+ * request before Webform's own send in webform_client_form_submit().
+ *
+ * If the processor completes the payment without redirecting, Webform resumes
+ * and calls webform_submission_send_mail() again for the same submission.
+ * Suppress that second copy here. The flag is set per submission id and lives
+ * only for the current request, so the admin "resend" action is unaffected.
+ *
+ * @see wf_crm_webform_postprocess::postSave()
+ */
+function webform_civicrm_mail_alter(&$message) {
+  if ($message['module'] !== 'webform' || $message['key'] !== 'submission') {
+    return;
+  }
+  $submission = $message['params']['submission'] ?? NULL;
+  if (!is_object($submission) || empty($submission->sid)) {
+    return;
+  }
+  $sent = drupal_static('webform_civicrm_mail_sent', []);
+  if (!empty($sent[$submission->sid])) {
+    $message['send'] = FALSE;
+  }
+}
+
+/**
  * Implements hook_civicrm_postSave_tableName().
  *
  * Handles adding/editing a custom group.
