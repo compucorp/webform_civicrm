@@ -2568,6 +2568,20 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
           }
           elseif (substr($name, 0, 6) == 'custom') {
             $this->data[$ent][$c]['update_contact_ref'][$n][$name] = $val;
+            // Drop the untranslated value from the params that createContact()
+            // and updateContact() send, using the same key as the branch above
+            // so multi-value custom groups are cleared too. saveContactRefs()
+            // writes the real id once the referenced contact exists. The
+            // $table copy has to stay - the next pass reads it to translate.
+            unset($this->data[$ent][$c][$ent][$key][$customName ?? $name]);
+          }
+          elseif ($table == 'contact') {
+            // The referenced webform contact was never saved - e.g. the user left
+            // the organisation blank - so $val is still a webform contact number,
+            // not a CiviCRM contact id. Drop it, otherwise it is passed to the api
+            // as a literal contact id and silently links this contact to whichever
+            // contact happens to hold that id.
+            unset($this->data[$ent][$c][$table][$n][$name]);
           }
         }
       }
@@ -2978,7 +2992,7 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
         }
         foreach ($params['contact'] as $contactParams) {
           foreach ($contactParams as $key => $value) {
-            if (strpos($key, "{$refKey}_") === 0 && !isset($updateParams[$key]) && !in_array($key, $skipKeys)) {
+            if (($key === $refKey || strpos($key, "{$refKey}_") === 0) && !isset($updateParams[$key]) && !in_array($key, $skipKeys)) {
               //If this is an edit to an existing record, remove any matching keys that was previously set to 'create' new records.
               if (strpos($key, "{$refKey}_-") !== 0) {
                 foreach ($updateParams as $k => $v) {
