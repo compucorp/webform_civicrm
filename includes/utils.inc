@@ -547,7 +547,8 @@ function wf_crm_get_fields($var = 'fields') {
       'activity' => ['entity_type' => 'activity', 'label' => t('Activity'), 'max_instances' => 99,  'attachments' => TRUE],
       'relationship' => ['entity_type' => 'contact', 'label' => t('Relationship'), 'help_text' => TRUE, 'custom_fields' => 'combined'],
     ];
-    $civicrm_version = wf_crm_apivalues('System', 'get')[0]['version'];
+    // System.get gathers full system info; only the version is needed here.
+    $civicrm_version = CRM_Utils_System::version();
     // Grant is moved to extension after > 5.47.0.
     if (version_compare($civicrm_version, '5.47') >= 0) {
       $components = array_diff($components, ['CiviGrant']);
