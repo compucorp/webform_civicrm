@@ -145,6 +145,7 @@ class wf_crm_webform_preprocess extends wf_crm_webform_base {
         $this->loadURLEvents($c);
       }
     }
+    $this->loadPrefillContribution();
     // Prefill other existing entities
     foreach (['case', 'activity', 'grant'] as $entity) {
       if (!empty($this->ent[$entity])) {
@@ -841,6 +842,50 @@ class wf_crm_webform_preprocess extends wf_crm_webform_base {
             }
           }
         }
+      }
+    }
+  }
+
+  /**
+   * Restore the payment plan fields from a Pending contribution.
+   *
+   * When a payer cancels on a hosted payment page (e.g. Stripe Checkout), the
+   * payment processor sends them back to the form with their contact ID, a
+   * checksum and the Pending contribution's ID in "prefill_contribution".
+   * The contact and their memberships are loaded as for any known contact;
+   * this restores the number of instalments and the frequency from that
+   * contribution's recurring contribution, so the payer finds the form as
+   * they filled it in.
+   *
+   * Only a Pending contribution of contact 1, who must already have been
+   * loaded (with a valid checksum or by a user allowed to), is read. Nothing
+   * is updated: submitting the form again creates a new contribution as
+   * usual.
+   */
+  private function loadPrefillContribution() {
+    $contributionId = wf_crm_aval($_GET, 'prefill_contribution');
+    $contactId = wf_crm_aval($this->ent, 'contact:1:id');
+    if (empty($this->data['contribution']) || !wf_crm_is_positive($contributionId) || !wf_crm_is_positive($contactId)) {
+      return;
+    }
+    $contributions = wf_crm_apivalues('Contribution', 'get', [
+      'id' => (int) $contributionId,
+      'contact_id' => (int) $contactId,
+      'contribution_status_id' => 'Pending',
+      'return' => ['contribution_recur_id'],
+    ]);
+    $recurId = wf_crm_aval(reset($contributions) ?: [], 'contribution_recur_id');
+    if (!wf_crm_is_positive($recurId)) {
+      return;
+    }
+    $recurs = wf_crm_apivalues('ContributionRecur', 'get', [
+      'id' => (int) $recurId,
+      'return' => ['installments', 'frequency_interval', 'frequency_unit'],
+    ]);
+    $recur = reset($recurs) ?: [];
+    foreach (['installments', 'frequency_interval', 'frequency_unit'] as $field) {
+      if (isset($recur[$field]) && $recur[$field] !== '') {
+        $this->info['contribution'][1]['contribution'][1][$field] = $recur[$field];
       }
     }
   }
