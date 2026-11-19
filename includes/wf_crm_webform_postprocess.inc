@@ -1180,6 +1180,13 @@ class wf_crm_webform_postprocess extends wf_crm_webform_base {
       $types = wf_crm_apivalues('membership_type', 'get');
     }
     $existing = $this->findMemberships($cid);
+    // Let other modules remove memberships that must not be renewed (for
+    // example ones that have ended). The contact ID and node are passed as
+    // copies so an implementation can't reassign the ones used below; treat
+    // the node as read-only.
+    $alter_cid = $cid;
+    $alter_node = $this->node;
+    drupal_alter('webform_civicrm_renewable_memberships', $existing, $alter_cid, $alter_node);
     foreach (wf_crm_aval($this->data, "membership:$c:membership", []) as $n => $params) {
       // The existing membership being renewed, if any.
       $existingMembership = [];
